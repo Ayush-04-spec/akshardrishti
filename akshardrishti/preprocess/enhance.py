@@ -67,12 +67,14 @@ def estimate_skew_hough(gray: np.ndarray, max_angle: float = 15.0) -> float:
         edges, rho=1, theta=np.pi / 720, threshold=80,
         minLineLength=max(30, small.shape[1] // 8), maxLineGap=20,
     )
+    if lines is not None and lines.ndim == 3:
+        lines = lines[:, 0]
     if lines is None or len(lines) < 5:
         log.debug("deskew: too few Hough lines (%s), skipping", 0 if lines is None else len(lines))
         return 0.0
 
     angles = []
-    for x1, y1, x2, y2 in lines[:, 0]:
+    for x1, y1, x2, y2 in lines:
         if x2 == x1:
             continue
         ang = np.degrees(np.arctan2(y2 - y1, x2 - x1))
