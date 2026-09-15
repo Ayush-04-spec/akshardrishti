@@ -1,0 +1,145 @@
+{
+  "schema_version": "1.0",
+  "created_at": "2026-09-14T16:33:46.142251+00:00",
+  "source_path": "sample_document.pdf",
+  "pages": [
+    {
+      "meta": {
+        "source_path": "sample_document.pdf",
+        "page_index": 0,
+        "width": 2480,
+        "height": 3508,
+        "dpi": 300,
+        "preprocessing_applied": [
+          "deskew",
+          "clahe",
+          "denoise"
+        ],
+        "rotation_corrected_deg": 0.0
+      },
+      "regions": [
+        {
+          "region_id": 0,
+          "type": "title",
+          "bbox": {
+            "x1": 100.0,
+            "y1": 100.0,
+            "x2": 2300.0,
+            "y2": 250.0
+          },
+          "detection_confidence": 0.95,
+          "reading_order": 0,
+          "script": "latin",
+          "script_confidence": null,
+          "lines": [
+            {
+              "text": "Government of India",
+              "bbox": {
+                "x1": 100.0,
+                "y1": 100.0,
+                "x2": 2300.0,
+                "y2": 250.0
+              },
+              "script": "latin",
+              "confidence": 0.92,
+              "backend": "trocr_printed"
+            }
+          ],
+          "text": "Government of India",
+          "recognition_confidence": 0.92,
+          "backend": null
+        },
+        {
+          "region_id": 1,
+          "type": "text",
+          "bbox": {
+            "x1": 100.0,
+            "y1": 300.0,
+            "x2": 1150.0,
+            "y2": 1500.0
+          },
+          "detection_confidence": 0.88,
+          "reading_order": 1,
+          "script": "deva",
+          "script_confidence": null,
+          "lines": [
+            {
+              "text": "यह एक नमूना दस्तावेज़ है।",
+              "bbox": {
+                "x1": 100.0,
+                "y1": 300.0,
+                "x2": 1150.0,
+                "y2": 350.0
+              },
+              "script": "deva",
+              "confidence": 0.87,
+              "backend": "crnn_mozhi"
+            },
+            {
+              "text": "प्रशासनिक उद्देश्यों के लिए।",
+              "bbox": {
+                "x1": 100.0,
+                "y1": 370.0,
+                "x2": 1150.0,
+                "y2": 420.0
+              },
+              "script": "deva",
+              "confidence": 0.91,
+              "backend": "crnn_mozhi"
+            }
+          ],
+          "text": "यह एक नमूना दस्तावेज़ है।\nप्रशासनिक उद्देश्यों के लिए।",
+          "recognition_confidence": 0.89,
+          "backend": null
+        },
+        {
+          "region_id": 2,
+          "type": "stamp_seal",
+          "bbox": {
+            "x1": 1800.0,
+            "y1": 2800.0,
+            "x2": 2200.0,
+            "y2": 3200.0
+          },
+          "detection_confidence": 0.93,
+          "reading_order": 5,
+          "script": "unknown",
+          "script_confidence": null,
+          "lines": [],
+          "text": "",
+          "recognition_confidence": null,
+          "backend": null
+        },
+        {
+          "region_id": 3,
+          "type": "signature",
+          "bbox": {
+            "x1": 1600.0,
+            "y1": 3000.0,
+            "x2": 2100.0,
+            "y2": 3300.0
+          },
+          "detection_confidence": 0.89,
+          "reading_order": 6,
+          "script": "unknown",
+          "script_confidence": null,
+          "lines": [],
+          "text": "",
+          "recognition_confidence": null,
+          "backend": null
+        }
+      ]
+    }
+  ],
+  "pipeline_config": {
+    "config_hash": "demo123"
+  },
+  "timings_s": {
+    "preprocess": 0.8,
+    "layout": 2.1,
+    "reading_order": 0.05,
+    "recognition": 12.3,
+    "total": 15.25,
+    "seconds_per_page": 15.25
+  }
+}

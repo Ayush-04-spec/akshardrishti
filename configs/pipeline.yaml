@@ -1,0 +1,141 @@
+# AksharDrishti pipeline configuration
+# Every stage is switchable from here so experiments are config diffs, not code edits.
+
+project:
+  name: AksharDrishti
+  version: 0.1.0
+  languages: [hi, mr, en]          # Hindi, Marathi, English
+  device: auto                     # auto | cuda | cpu
+
+paths:
+  data_root: ./datasets
+  indicdlp: ./datasets/indicdlp_subset
+  mozhi: ./datasets/mozhi
+  benchmark: ./benchmark
+  weights: ./weights
+  outputs: ./outputs
+
+# ---------------------------------------------------------------- preprocessing
+preprocess:
+  enabled: true
+  target_dpi: 300
+  max_side: 2048                   # cap the long edge; protects T4 memory
+  grayscale: true
+  deskew:
+    enabled: true
+    max_angle: 15.0                # degrees; beyond this we assume detection failed
+    method: hough                  # hough | moments
+  denoise:
+    enabled: true
+    method: fastnlmeans            # fastnlmeans | bilateral | median
+    strength: 7
+  clahe:
+    enabled: true
+    clip_limit: 2.0
+    tile_grid: [8, 8]
+  binarize:
+    enabled: false                 # OFF by default: YOLO and TrOCR both prefer
+    method: sauvola                # grayscale. Turn on only for the CRNN branch.
+    window: 25
+
+# ------------------------------------------------------------ layout detection
+layout:
+  model: yolo11l                   # yolo11l | yolov10x | doclayout_yolo
+  weights: ./weights/layout/yolo11l_indicdlp.pt
+  imgsz: 1024
+  conf: 0.25
+  iou: 0.45
+  max_det: 300
+  classes: 11                      # see configs/class_map.yaml
+  sahi:
+    enabled: true                  # sliced inference for dense/newspaper pages
+    slice_height: 640
+    slice_width: 640
+    overlap_ratio: 0.2
+    # Only slice when the page looks dense -- slicing every page is ~4x slower
+    # for no gain on a sparse certificate.
+    auto_trigger:
+      enabled: true
+      min_regions: 25              # unsliced pass finds >= this many regions
+      min_small_region_frac: 0.4   # ...and >= this fraction are small
+
+# --------------------------------------------------------------- reading order
+reading_order:
+  method: xy_cut                   # xy_cut | topdown | column_aware
+  min_gap_ratio: 0.02              # whitespace gap as fraction of page dim
+  max_recursion: 12
+  # Page furniture is pulled out of the flow and appended, never interleaved.
+  furniture_classes: [header, footer, page_number]
+
+# ----------------------------------------------------------- script identification
+script_id:
+  enabled: true
+  method: cnn                      # cnn | unicode_vote | always_deva | always_latin
+  weights: ./weights/script_id/scriptid_cnn.pt
+  confidence_floor: 0.6            # below this, run BOTH branches and keep the
+                                   # higher-confidence transcription
+  scripts: [deva, latin]
+
+# ------------------------------------------------------------------ recognition
+recognize:
+  # Backends are swappable; each implements akshardrishti.recognize.base.Recognizer
+  deva_backend: crnn_mozhi         # crnn_mozhi | bhashini_api | paddle_vl | surya
+  latin_backend: trocr_printed     # trocr_printed | paddle_vl | tesseract
+
+  line_segmentation:
+    enabled: true
+    method: projection             # projection | craft
+    min_line_height: 12
+    smoothing: 5
+
+  backends:
+    crnn_mozhi:
+      weights: ./weights/recognize/crnn_mozhi_himr.pt
+      charset: ./weights/recognize/charset_deva.txt
+      img_height: 32
+      max_width: 512
+      beam_width: 10               # 1 = greedy CTC decode
+    trocr_printed:
+      model_id: microsoft/trocr-base-printed
+      max_new_tokens: 128
+    bhashini_api:
+      service_id: bhashini/iiith-bhasha-ocr
+      endpoint_env: BHASHINI_ENDPOINT
+      api_key_env: BHASHINI_API_KEY
+      timeout_s: 30
+      max_retries: 3
+    paddle_vl:
+      model_id: PaddlePaddle/PaddleOCR-VL
+    surya:
+      langs: [hi, mr, en]
+
+# --------------------------------------------------------------- postprocessing
+postprocess:
+  unicode_normalize: NFC           # NFC is correct for Devanagari storage
+  repair_shirorekha: true          # rejoin conjuncts split at the top bar
+  strip_control_chars: true
+  collapse_whitespace: true
+  table_reconstruction: true
+  min_confidence: 0.0              # keep everything; filter at analysis time
+
+# -------------------------------------------------------------------- output
+output:
+  formats: [json, markdown, text]  # json | markdown | text | pdf
+  include_bbox: true
+  include_confidence: true
+  include_crops: false             # true dumps region images for debugging
+  json_indent: 2
+
+# ---------------------------------------------------------------- evaluation
+eval:
+  metrics: [cer, wer, layout_map, reading_order_acc, seconds_per_page]
+  cer:
+    normalize_unicode: true
+    ignore_case: false             # meaningless for Devanagari; matters for English
+    strip_punctuation: false
+  systems:                         # what the comparison table gets populated with
+    - tesseract_fullpage
+    - paddle_vl_zeroshot
+    - bhashini_api
+    - surya
+    - akshardrishti

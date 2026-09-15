@@ -1,0 +1,40 @@
+# ---- core ----
+numpy>=1.26
+opencv-python-headless>=4.9
+pillow>=10.0
+pyyaml>=6.0
+pydantic>=2.6
+tqdm>=4.66
+pandas>=2.0
+scipy>=1.11
+
+# ---- deep learning ----
+torch>=2.2
+torchvision>=0.17
+transformers>=4.40
+
+# ---- layout detection ----
+ultralytics>=8.3.0          # YOLO11. NOTE: AGPL-3.0 -- fine for academic use
+sahi>=0.11.15               # sliced inference for dense pages
+
+# ---- datasets ----
+datasets>=2.18
+huggingface-hub>=0.22
+
+# ---- evaluation ----
+jiwer>=3.0                  # CER / WER
+pycocotools>=2.0.7          # layout mAP
+
+# ---- app ----
+streamlit>=1.32
+streamlit-image-coordinates>=0.1.6
+
+# ---- experiment tracking ----
+wandb>=0.16
+
+# ---- optional recognition backends -------------------------------------
+# Install only what you actually benchmark; each is heavy.
+#   pip install paddlepaddle-gpu paddleocr    # PaddleOCR-VL
+#   pip install surya-ocr                     # Surya (OpenRAIL-M weights)
+#   apt-get install tesseract-ocr tesseract-ocr-hin tesseract-ocr-mar
+#   pip install pytesseract                   # Tesseract baseline

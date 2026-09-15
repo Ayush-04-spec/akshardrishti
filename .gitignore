@@ -1,0 +1,25 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# data & weights -- never commit these
+datasets/
+weights/
+runs/
+results/
+outputs/
+*.pt
+*.pth
+*.onnx
+wandb/
+
+# benchmark: commit annotations, not the source images (licence + size)
+benchmark/images/
+!benchmark/gt_text/
+!benchmark/gt_layout/
+!benchmark/metadata.csv
+
+.ipynb_checkpoints/
+.DS_Store
+.env

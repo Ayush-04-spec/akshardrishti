@@ -1,0 +1,123 @@
+# IndicDLP 42-class taxonomy  ->  AksharDrishti 11-class taxonomy
+#
+# WHY REDUCE: 42 classes is too fine-grained for (a) a ~15k-image training subset
+# on a T4 and (b) a 150-page evaluation benchmark -- rare classes would get a
+# handful of instances and produce meaningless per-class mAP. 11 classes keeps
+# everything the pipeline actually routes on and folds the rest together.
+#
+# !! VERIFY BEFORE FIRST TRAINING RUN !!
+# The source names below are our best reconstruction of IndicDLP's taxonomy from
+# the paper. Run:
+#       python data/prepare_indicdlp.py --inspect
+# to dump the real category names from the downloaded annotations, then reconcile
+# any name that lands in `unmapped`. The script FAILS LOUD on unknown classes
+# rather than silently dropping them.
+
+version: 1
+
+# Target taxonomy. Order defines the YOLO class index (0-based).
+targets:
+  - title        # 0  document/section titles, headings at any level
+  - text         # 1  body paragraphs, the default text block
+  - list         # 2  bulleted / numbered lists
+  - table        # 3  tables (whole-region; cell structure handled downstream)
+  - figure       # 4  images, charts, diagrams, maps
+  - caption      # 5  captions attached to figures/tables
+  - header       # 6  running page headers
+  - footer       # 7  running page footers, footnotes
+  - page_number  # 8  folio / page numbers
+  - stamp_seal   # 9  official stamps, seals, emblems  <-- key for govt docs
+  - signature    # 10 handwritten signatures
+
+# source_class_name -> target_class_name
+mapping:
+  # --- titles / headings ---
+  title: title
+  section_title: title
+  subsection_title: title
+  sub_section_title: title
+  heading: title
+  subheading: title
+  document_title: title
+  chapter_title: title
+  author: title
+
+  # --- body text ---
+  text: text
+  paragraph: text
+  plain_text: text
+  body_text: text
+  abstract: text
+  address: text
+  date: text
+  reference: text
+  formula: text
+  equation: text
+  quote: text
+  answer: text
+  question: text
+  option: text
+
+  # --- lists ---
+  list: list
+  list_item: list
+  ordered_list: list
+  unordered_list: list
+
+  # --- tables ---
+  table: table
+  table_body: table
+  table_cell: table
+  table_row: table
+  table_column: table
+
+  # --- figures ---
+  figure: figure
+  image: figure
+  picture: figure
+  chart: figure
+  diagram: figure
+  map: figure
+  logo: figure
+  graphic: figure
+
+  # --- captions ---
+  caption: caption
+  figure_caption: caption
+  table_caption: caption
+  footnote_caption: caption
+
+  # --- page furniture ---
+  header: header
+  page_header: header
+  running_header: header
+  footer: footer
+  page_footer: footer
+  footnote: footer
+  running_footer: footer
+  page_number: page_number
+  page_no: page_number
+  folio: page_number
+
+  # --- government-document specifics (the classes that matter most for us) ---
+  stamp: stamp_seal
+  seal: stamp_seal
+  emblem: stamp_seal
+  watermark: stamp_seal
+  signature: signature
+  handwriting: signature
+  handwritten: signature
+
+# Source classes to drop entirely (annotation artifacts, or regions we do not
+# route on). Listing a class here is an explicit decision, not an accident.
+ignore:
+  - background
+  - noise
+  - unknown
+  - other
+
+# Behaviour when a source class appears in neither `mapping` nor `ignore`:
+#   fail  -> raise (default; forces a conscious decision)
+#   text  -> fold into `text` and log a warning
+#   drop  -> discard and log a warning
+on_unmapped: fail
