@@ -41,6 +41,11 @@ mapping:
   document_title: title
   chapter_title: title
   author: title
+  headline: title
+  sub_headline: title
+  subsub_headline: title
+  subsub_section_title: title
+  flag: title
 
   # --- body text ---
   text: text
@@ -57,12 +62,26 @@ mapping:
   answer: text
   question: text
   option: text
+  sidebar: text
+  dateline: text
+  contact_info: text
+  website_link: text
 
   # --- lists ---
   list: list
   list_item: list
   ordered_list: list
   unordered_list: list
+  first_level_question: list
+  second_level_question: list
+  third_level_question: list
+  options: list
+  sub_ordered_list: list
+  subsub_ordered_list: list
+  sub_unordered_list: list
+  subsub_unordered_list: list
+  table_of_contents: list
+  index: list
 
   # --- tables ---
   table: table
@@ -80,6 +99,7 @@ mapping:
   map: figure
   logo: figure
   graphic: figure
+  advertisement: figure
 
   # --- captions ---
   caption: caption
@@ -95,6 +115,7 @@ mapping:
   page_footer: footer
   footnote: footer
   running_footer: footer
+  jumpline: footer
   page_number: page_number
   page_no: page_number
   folio: page_number

@@ -52,6 +52,16 @@ def _norm(value: str) -> str:
     return str(value).strip().lower().replace(" ", "_").replace("-", "_").replace("&", "and")
 
 
+def normalize_category_name(name: str) -> str:
+    """Normalize category names from JSON annotations to match class_map.yaml format.
+    
+    IndicDLP annotations use hyphens (e.g., 'chapter-title', 'figure-caption')
+    but class_map.yaml uses underscores (e.g., 'chapter_title', 'figure_caption').
+    This function bridges the gap without modifying the protected config file.
+    """
+    return name.strip().lower().replace("-", "_")
+
+
 def load_hf_dataset(repo: str, split: str, streaming: bool = True):
     from datasets import load_dataset
 
@@ -127,14 +137,14 @@ def _iter_class_names(row: dict):
     if isinstance(objects, dict):
         for key in ("category", "category_name", "label", "class", "categories"):
             if key in objects and isinstance(objects[key], list):
-                yield from (str(c) for c in objects[key])
+                yield from (normalize_category_name(str(c)) for c in objects[key])
                 return
     elif isinstance(objects, list):
         for obj in objects:
             if isinstance(obj, dict):
                 for key in ("category", "category_name", "label", "class"):
                     if key in obj:
-                        yield str(obj[key])
+                        yield normalize_category_name(str(obj[key]))
                         break
 
 
@@ -148,7 +158,7 @@ def _iter_annotations(row: dict):
         boxes_key = next((k for k in ("bbox", "bboxes", "boxes") if k in objects), None)
         if names_key and boxes_key:
             for name, box in zip(objects[names_key], objects[boxes_key]):
-                yield str(name), list(box)
+                yield normalize_category_name(str(name)), list(box)
     elif isinstance(objects, list):
         for obj in objects:
             if not isinstance(obj, dict):
@@ -156,7 +166,7 @@ def _iter_annotations(row: dict):
             name = next((str(obj[k]) for k in ("category", "category_name", "label", "class") if k in obj), None)
             box = next((obj[k] for k in ("bbox", "box", "bounding_box") if k in obj), None)
             if name and box:
-                yield name, list(box)
+                yield normalize_category_name(name), list(box)
 
 
 def _to_yolo(box_xywh: list[float], img_w: int, img_h: int) -> tuple[float, float, float, float] | None:
