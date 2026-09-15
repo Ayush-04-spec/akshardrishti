@@ -9,8 +9,8 @@ pandas>=2.0
 scipy>=1.11
 
 # ---- deep learning ----
-torch>=2.2
-torchvision>=0.17
+torch>=2.5.0
+torchvision>=0.20.0
 transformers>=4.40
 
 # ---- layout detection ----
