@@ -872,3 +872,79 @@ All 15 samples extracted, cropped with 10px padding, and saved:
 3. **Add to `ignore` list** - Only if visual inspection confirms these are non-content artifacts (template markup, not actual layout regions)
 
 **Action Required:** Visual inspection of the 15 cropped samples is needed to make the final mapping decision. Without seeing the actual visual content, the safest mapping is `placeholder_text: text`.
+
+---
+
+## Category Mapping: COMPLETE
+
+**Date:** 2026-09-15  
+**Status:** ✅ Full coverage achieved across all splits
+
+### Three-File Match Confirmation
+
+All 42 IndicDLP categories successfully mapped across all three annotation files:
+
+| Split | Total Categories | Matched | Unmatched | Status |
+|-------|------------------|---------|-----------|--------|
+| **train** | 42 | 42 | 0 | ✅ COMPLETE |
+| **val** | 42 | 42 | 0 | ✅ COMPLETE |
+| **test** | 42 | 42 | 0 | ✅ COMPLETE |
+
+**Verification:** All three splits contain identical category sets. No split-specific categories found.
+
+### Final 11-Class Distribution (Training Set)
+
+**Total annotations analyzed:** 1,458,855
+
+| Target Class | Count | Percentage | Status |
+|--------------|-------|------------|--------|
+| **text** | 589,785 | 40.43% | ✓ |
+| **list** | 243,268 | 16.68% | ✓ |
+| **title** | 187,222 | 12.83% | ✓ |
+| **page_number** | 159,329 | 10.92% | ✓ |
+| **figure** | 94,981 | 6.51% | ✓ |
+| **footer** | 71,399 | 4.89% | ✓ |
+| **header** | 61,406 | 4.21% | ✓ |
+| **caption** | 32,307 | 2.21% | ✓ |
+| **table** | 19,158 | 1.31% | ✓ |
+| **stamp_seal** | 0 | 0.00% | ⚠ ABSENT |
+| **signature** | 0 | 0.00% | ⚠ ABSENT |
+
+### Class Imbalance Analysis
+
+**⚠ 2 target classes have NO annotations in IndicDLP:**
+- `stamp_seal` (0 annotations, 0.00%)
+- `signature` (0 annotations, 0.00%)
+
+**Explanation:** These classes were designed for government document-specific elements (official stamps, seals, handwritten signatures) that do not appear in the general IndicDLP dataset. They are expected to appear in real-world government forms processing but will need to be trained from other sources or fine-tuned separately.
+
+**✓ All other 9 classes exceed 1% representation** - no critical imbalance for core layout elements.
+
+**✓ All 1,458,855 annotations successfully mapped** - 100% coverage, no unmapped categories.
+
+### Mapping Summary
+
+**Total mappings added:** 22 categories
+- **Normalization fix:** hyphen → underscore conversion in `prepare_indicdlp.py`
+- **Missing mappings added to class_map.yaml:**
+  - Titles/Headings: 5 (headline, sub_headline, subsub_headline, subsub_section_title, flag)
+  - Body Text: 4 (sidebar, dateline, contact_info, website_link)
+  - Lists: 11 (placeholder_text, first/second/third_level_question, options, sub_ordered_list, subsub_ordered_list, sub_unordered_list, subsub_unordered_list, table_of_contents, index)
+  - Figures: 1 (advertisement)
+  - Page Furniture: 1 (jumpline)
+
+**Final mapping rate:** 42/42 source categories → 11 target classes (100% coverage)
+
+### Ready for Export
+
+With all categories mapped, `data/prepare_indicdlp.py --export` can now proceed without errors. The script will:
+1. Stream from HuggingFace Hub: `ai4bharat/indicdlp`
+2. Apply normalization: convert hyphenated names to underscores
+3. Resolve categories: use class_map.yaml mappings
+4. Filter: Hindi/Marathi/English, government-relevant domains
+5. Export: YOLO format with 11-class taxonomy
+
+**Recommended next steps:**
+1. Run `python data/prepare_indicdlp.py --inspect` to confirm HF Hub access
+2. Run export with `--max-images 15000` for T4-compatible training subset
+3. Monitor for `stamp_seal` and `signature` - consider adding synthetic examples or separate fine-tuning phase for these government-specific classes

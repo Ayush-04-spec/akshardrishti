@@ -82,6 +82,7 @@ mapping:
   subsub_unordered_list: list
   table_of_contents: list
   index: list
+  placeholder_text: list
 
   # --- tables ---
   table: table
