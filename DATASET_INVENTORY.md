@@ -948,3 +948,480 @@ With all categories mapped, `data/prepare_indicdlp.py --export` can now proceed 
 1. Run `python data/prepare_indicdlp.py --inspect` to confirm HF Hub access
 2. Run export with `--max-images 15000` for T4-compatible training subset
 3. Monitor for `stamp_seal` and `signature` - consider adding synthetic examples or separate fine-tuning phase for these government-specific classes
+
+---
+
+## Filter Verification (Local Loading)
+
+**Date:** 2026-09-16  
+**Purpose:** Verify local annotation loading and filtering logic with real data
+
+### Implementation
+
+**Functions added to `data/prepare_indicdlp.py`:**
+1. `load_local_annotations()` - Load COCO JSON from disk
+2. `map_category_id_to_name()` - Build category ID → normalized name mapping
+3. `build_filtered_image_list()` - Filter images by language/domain with optional cap
+4. `map_annotations_to_images()` - Build image ID → annotations mapping
+
+**Fixes applied:**
+1. **Domain field:** Added `"document_category"` as first candidate (was missing)
+2. **Domain values:** Updated defaults to match actual JSON:
+   - `"acts_and_rules"` → `"acts_rules"`
+   - `"notices"` → `"notice"`
+   - `"newspapers"` → `"newspaper"`
+   - `"question_papers"` → `"question_paper"`
+
+### Filter Test Results (Training Set)
+
+**Source:** `instances_train2017.json` (95,172 total images)
+
+**Filter criteria:**
+- **Languages:** Hindi, Marathi
+- **Domains:** acts_rules, forms, notice, newspaper, question_paper
+
+#### Uncapped Results
+
+**Total matching images:** 5,743 (6.0% of training set)
+
+**Breakdown by language:**
+
+| Language | Count | Percentage |
+|----------|-------|------------|
+| Marathi | 2,970 | 51.7% |
+| Hindi | 2,773 | 48.3% |
+
+**Breakdown by domain:**
+
+| Domain | Count | Percentage |
+|--------|-------|------------|
+| acts_rules | 1,430 | 24.9% |
+| question_paper | 1,279 | 22.3% |
+| forms | 1,155 | 20.1% |
+| notice | 1,104 | 19.2% |
+| newspaper | 775 | 13.5% |
+
+#### Capped Results (max_images=15,000)
+
+**Total matching images:** 5,743 (no truncation)
+
+**Analysis:** The filtered pool (5,743 images) is well below the 15,000 cap. All matching images from the training set fit within the budget.
+
+### Consistency Verification
+
+**Second run (identical parameters):**
+- Uncapped: 5,743 ✓ (consistent)
+- Capped: 5,743 ✓ (consistent)
+
+**Result:** No flakiness detected - filtering is deterministic.
+
+### Key Findings
+
+1. **Small filtered pool:** Only 5,743 images match our target criteria out of 95,172 training images (6.0%)
+   - This is much smaller than anticipated 15,000 target
+   - Will need to include validation and test splits to reach target size
+   
+2. **Balanced language distribution:** Hindi (48.3%) and Marathi (51.7%) are nearly equal
+   
+3. **Domain distribution:** All 5 target domains are represented with reasonable balance (13-25% each)
+   
+4. **No truncation needed:** Current filter yields fewer images than max_images cap
+
+### Next Steps for Full Export
+
+To reach the target ~15,000 training images:
+1. **Option A:** Include validation/test splits in filtered pool
+2. **Option B:** Expand filter criteria (add English, or additional domains)
+3. **Option C:** Use the 5,743 high-quality government documents as-is (may be sufficient for fine-tuning)
+
+**Recommendation:** Start with Option C - 5,743 carefully filtered government documents may provide better results than a diluted 15k set including less relevant domains.
+
+---
+
+## Pooled Filter Results (Train+Val+Test)
+
+**Date:** 2026-09-16  
+**Purpose:** Determine total available filtered images across all three splits
+
+### Per-File Results
+
+**Filter criteria:** Hindi/Marathi + 5 government domains (acts_rules, forms, notice, newspaper, question_paper)
+
+| Split | Total Images | Matching Images | Match Rate |
+|-------|--------------|-----------------|------------|
+| train | 95,172 | 5,743 | 6.0% |
+| val | 11,636 | 723 | 6.2% |
+| test | 11,634 | 723 | 6.2% |
+| **Subtotal** | **118,442** | **7,189** | **6.1%** |
+
+### Image ID Overlap Investigation
+
+**Initial finding (INCORRECT):** 258 overlapping image IDs between val and test
+
+**Investigation result:** All 258 were **false alarms** - ID namespace collision, not actual duplicates.
+
+**Analysis of 258 overlapping IDs:**
+- True duplicates (same filename): **0**
+- False alarms (different filenames): **258** (100%)
+
+**Example false alarms:**
+- ID 7175: val=`qp_mr_000034_0.png` vs test=`fm_mr_000277_0.png`
+- ID 6665: val=`np_mr_000136_1.png` vs test=`np_mr_000174_1.png`
+- ID 3594: val=`np_hi_000388_1.png` vs test=`np_hi_000232_1.png`
+
+**Root cause:** COCO `image_id` field is **per-split sequential**, not globally unique across files. Two different images can share the same ID if they're in different splits.
+
+**Corrected overlap check (by filename):**
+
+| Comparison | Result |
+|------------|--------|
+| train ∩ val | ✅ 0 duplicates |
+| train ∩ test | ✅ 0 duplicates |
+| val ∩ test | ✅ 0 duplicates |
+
+**Conclusion:** All three splits are fully disjoint. No actual duplicate images exist across splits.
+
+### Pooled Totals (All Three Splits)
+
+**Combined total:** 7,189 unique images (verified by filename deduplication)
+
+**Per-split contribution:**
+
+| Split | Count | Percentage |
+|-------|-------|------------|
+| train | 5,743 | 79.9% |
+| val | 723 | 10.1% |
+| test | 723 | 10.1% |
+
+**Combined language breakdown:**
+
+| Language | Count | Percentage |
+|----------|-------|------------|
+| Marathi | 3,715 | 51.7% |
+| Hindi | 3,474 | 48.3% |
+
+**Combined domain breakdown:**
+
+| Domain | Count | Percentage |
+|--------|-------|------------|
+| acts_rules | 1,788 | 24.9% |
+| question_paper | 1,600 | 22.3% |
+| forms | 1,442 | 20.1% |
+| notice | 1,381 | 19.2% |
+| newspaper | 978 | 13.6% |
+
+### Comparison Against 15,000 Target
+
+**⚠️ IMPORTANT NOTE: COCO image_id is NOT globally unique**
+
+The COCO format's `image_id` field is per-split sequential (starts from 0 in each split file). When pooling across splits, always use `file_name` as the unique key, not `image_id`. Using `image_id` for cross-split deduplication will produce false positives.
+
+| Metric | Value |
+|--------|-------|
+| **Target** | **15,000 images** |
+| **Pooled total** | **7,189 images** |
+| **Percentage of target** | **47.9%** |
+| **Gap** | **7,811 images short** |
+| **Shortfall** | **52.1% below target** |
+
+### Analysis
+
+**The filtered pool (7,189 images) represents less than half the original 15,000 target.**
+
+**Key constraints limiting pool size:**
+1. **Language filter:** Only Hindi/Marathi (excludes 10 other languages: Assamese, Bengali, English, Gujarati, Kannada, Malayalam, Odia, Punjabi, Tamil, Telugu)
+2. **Domain filter:** Only 5 government-related domains (excludes 7 others: Brochures, Magazines, Manuals, Novels, Research papers, Syllabus, Text books)
+3. **Dataset composition:** Government documents in Hindi/Marathi are a minority in IndicDLP
+
+**To reach 15,000 images, options include:**
+- Add English language (3rd most common in government docs)
+- Add additional domains (e.g., Syllabus, Text books - academic documents)
+- Use the current 7,189 high-quality filtered images (may be sufficient for specialized fine-tuning)
+
+**Recommendation:** The 7,189 images are a carefully filtered, high-quality subset directly matching the target use case (Hindi/Marathi government documents). This focused dataset may provide better results than a diluted 15k set including less relevant content.
+
+### Consistency Verification
+
+**Second run (identical parameters):**
+- Pooled total: 7,189 ✅ (consistent)
+
+**Result:** Filtering is deterministic across runs.
+
+---
+
+## Pooled Filter Results (Train+Val+Test, Hindi+Marathi+English)
+
+**Date:** 2026-09-16  
+**Purpose:** Expand filter to include English language, assess impact on pool size
+
+### Per-File Results (With English Added)
+
+**Filter criteria:** Hindi/Marathi/**English** + 5 government domains (acts_rules, forms, notice, newspaper, question_paper)
+
+| Split | Total Images | Matching Images | Match Rate | Change from Hindi+Marathi Only |
+|-------|--------------|-----------------|------------|-------------------------------|
+| train | 95,172 | 8,267 | 8.7% | +2,524 (+44.0%) |
+| val | 11,636 | 1,040 | 8.9% | +317 (+43.8%) |
+| test | 11,634 | 1,034 | 8.9% | +311 (+43.0%) |
+| **Total** | **118,442** | **10,341** | **8.7%** | **+3,152 (+43.9%)** |
+
+### Pooled Total (All Three Splits, Deduplicated by Filename)
+
+**New pooled total:** 10,341 unique images
+
+**Per-split contribution:**
+
+| Split | Count | Percentage |
+|-------|-------|------------|
+| train | 8,267 | 79.9% |
+| val | 1,040 | 10.1% |
+| test | 1,034 | 10.0% |
+
+### Combined Language Breakdown
+
+| Language | Count | Percentage |
+|----------|-------|------------|
+| Hindi | 3,474 | 33.6% |
+| Marathi | 3,715 | 35.9% |
+| **English** | **3,152** | **30.5%** |
+| **Total** | **10,341** | **100.0%** |
+
+**Language balance:** Nearly perfect three-way balance - Marathi slightly ahead, Hindi and English close behind.
+
+### Combined Domain Breakdown
+
+| Domain | Count | Percentage | Change from Hindi+Marathi Only |
+|--------|-------|------------|-------------------------------|
+| acts_rules | 3,282 | 31.7% | +1,494 (+83.5%) |
+| forms | 2,027 | 19.6% | +585 (+40.6%) |
+| notice | 1,943 | 18.8% | +562 (+40.7%) |
+| question_paper | 1,600 | 15.5% | 0 (0.0%) |
+| newspaper | 1,489 | 14.4% | +511 (+52.3%) |
+
+**Key finding:** English contributed significantly to all domains except **question_paper** (0 additional images), suggesting English-language question papers are rare or absent in the filtered government document subset.
+
+### English's Standalone Contribution
+
+**Previous total (Hindi+Marathi only):** 7,189 images  
+**New total (Hindi+Marathi+English):** 10,341 images  
+**English's contribution:** 3,152 images
+
+**Analysis:**
+- English added **3,152 images** (43.9% increase over Hindi+Marathi baseline)
+- English represents **30.5%** of the expanded pool
+- English contribution is nearly equal to Hindi (3,474) and Marathi (3,715) individually
+
+### Comparison Against 15,000 Target
+
+| Metric | Value |
+|--------|-------|
+| **Target** | **15,000 images** |
+| **New pooled total** | **10,341 images** |
+| **Percentage of target** | **68.9%** |
+| **Remaining gap** | **4,659 images short** |
+| **Shortfall** | **31.1% below target** |
+
+**Progress:** Adding English improved coverage from 47.9% (7,189) to 68.9% (10,341) of the 15,000 target - a **21.0 percentage point gain**.
+
+**Remaining gap:** 4,659 images (31.1%) still needed to reach 15,000.
+
+### Summary
+
+**Impact of adding English:**
+- ✅ Added 3,152 images (+43.9%)
+- ✅ Improved target coverage from 47.9% to 68.9% (+21.0 pp)
+- ✅ Created balanced three-language dataset (33.6% / 35.9% / 30.5%)
+- ✅ Significantly expanded acts_rules (+83.5%) and newspaper (+52.3%) domains
+- ⚠️ No English question papers found in government document filter
+
+**Pool composition:** 10,341 government documents across Hindi/Marathi/English, well-balanced by language and domain, covering 68.9% of the original 15,000 target.
+
+### Consistency Verification
+
+**Second run (identical parameters):**
+- New pooled total: 10,341 ✅ (consistent)
+
+**Result:** Filtering with English is deterministic across runs.
+
+---
+
+## Image Extraction Complete
+
+**Date:** 2026-09-16  
+**Duration:** ~2 minutes 10 seconds (single-pass tar iteration)  
+**Method:** Single-pass tar member iteration using `iter_tar_images()`
+
+### Extraction Summary
+
+**Target:** 10,341 images (filtered by Hindi/Marathi/English + 5 government domains)  
+**Extracted:** 10,341 images ✓  
+**Output directory:** `datasets/indicdlp_subset/images/`
+
+### Disk Space
+
+**Estimated size (pre-extraction):** 7.14 GB  
+**Actual consumption:** 6.90 GB (7,409,047,687 bytes)  
+**Average file size:** 0.67 MB per image  
+**Disk space gate:** PASSED (6.90 GB < 17.44 GB threshold, 80% of 21.8 GB free)
+
+### Integrity Verification
+
+**File count check:**
+- Expected: 10,341 unique files
+- Actual: 10,341 files on disk ✓
+- **Collision check:** PASSED (no filename overwrites)
+
+**Spot-check (10 random PNGs):**
+
+| File | Dimensions | Status |
+|------|------------|--------|
+| ar_hi_000333_0.png | 1654×2339 | ✓ Valid |
+| ar_en_000415.png | 596×842 | ✓ Valid |
+| fm_hi_000643_1.png | 596×842 | ✓ Valid |
+| fm_hi_000146_0.png | 1700×2400 | ✓ Valid |
+| fm_en_000377_0.png | 595×842 | ✓ Valid |
+| ar_mr_000085_0.png | 1484×2267 | ✓ Valid |
+| ar_hi_000186_0.png | 1387×1806 | ✓ Valid |
+| qp_hi_000197_0.png | 1595×2103 | ✓ Valid |
+| ar_en_001431.png | 596×842 | ✓ Valid |
+| qp_mr_000045_0.png | 1653×2339 | ✓ Valid |
+
+**Result:** All 10 spot-checked images opened successfully with PIL.Image.open().verify() ✓
+
+### Image Resolution Analysis (from spot-check)
+
+**Range:** 595×842 to 1700×2400 pixels  
+**Typical dimensions:**
+- Standard letter size: ~596×842 (A4-like aspect ratio)
+- Legal/long form: ~1654×2339 (higher resolution scans)
+- Question papers: ~1595×2103 to 1653×2339
+
+### Implementation Notes
+
+**Function added:** `iter_tar_images(tar_path, filenames)` in `data/prepare_indicdlp.py`
+
+**Key features:**
+- Single-pass tar iteration (opens tar ONCE, not 10,341 times)
+- Progress logging every 1000 images
+- Extracts only files matching the filtered filename set
+- Yields (filename, raw_bytes) tuples for memory-efficient processing
+
+**Performance:** Extracted 10,341 images from 79.95 GB tar in ~130 seconds (~80 images/second)
+
+### Next Steps
+
+**Completed:**
+- ✅ Image extraction from tar
+- ✅ File integrity verification
+- ✅ Disk space management
+
+**Pending:**
+- YOLO annotation conversion (separate step, NOT done yet)
+- Training data split (after YOLO conversion)
+- Final dataset validation
+
+### Files Modified
+
+**Code changes:**
+- `data/prepare_indicdlp.py`: Added `iter_tar_images()` function only
+- No changes to `normalize_category_name()`, `_iter_class_names()`, `_iter_annotations()`, `_to_yolo()`, or `class_map.yaml`
+
+**Extraction artifacts (NOT in git, gitignored):**
+- `datasets/indicdlp_subset/images/` (10,341 PNG files, 6.90 GB)
+
+---
+
+## Train/Val Split
+
+**Date:** 2026-09-16  
+**Method:** Stratified split by (language, domain) joint combination  
+**Random seed:** 42 (per TECHNICAL_REPORT.md section 11.2)  
+**Split ratio target:** 90% train / 10% val
+
+### Split Summary
+
+**Total images:** 10,341  
+**Train:** 9,306 images (90.0%)  
+**Val:** 1,035 images (10.0%)
+
+**Directory structure:**
+```
+datasets/indicdlp_subset/images/
+├── train/     (9,306 files)
+└── val/       (1,035 files)
+```
+
+### Stratification Details
+
+**Stratified by:** 14 unique (language, domain) combinations  
+**Method:** scikit-learn train_test_split with stratify parameter
+
+**Combinations covered:**
+- 3 languages: Hindi, Marathi, English
+- 5 domains: acts_rules, forms, notice, newspaper, question_paper
+- 14 actual combinations (English × question_paper has 0 images)
+
+### Per-Group Breakdown
+
+| Language | Domain | Train | Val | Total | Val% |
+|----------|--------|------:|----:|------:|-----:|
+| English | acts_rules | 1,345 | 149 | 1,494 | 10.0% |
+| English | forms | 526 | 59 | 585 | 10.1% |
+| English | newspaper | 460 | 51 | 511 | 10.0% |
+| English | notice | 506 | 56 | 562 | 10.0% |
+| Hindi | acts_rules | 637 | 71 | 708 | 10.0% |
+| Hindi | forms | 715 | 80 | 795 | 10.1% |
+| Hindi | newspaper | 432 | 48 | 480 | 10.0% |
+| Hindi | notice | 542 | 60 | 602 | 10.0% |
+| Hindi | question_paper | 800 | 89 | 889 | 10.0% |
+| Marathi | acts_rules | 972 | 108 | 1,080 | 10.0% |
+| Marathi | forms | 582 | 65 | 647 | 10.0% |
+| Marathi | newspaper | 448 | 50 | 498 | 10.0% |
+| Marathi | notice | 701 | 78 | 779 | 10.0% |
+| Marathi | question_paper | 640 | 71 | 711 | 10.0% |
+
+**Val% range:** 10.0% - 10.1%  
+**Maximum deviation from 10%:** 0.1%
+
+### Balance Verification
+
+✅ **ALL 14 groups have >0 images in BOTH train and val splits**  
+✅ **Zero train groups:** None  
+✅ **Zero val groups:** None  
+✅ **Imbalanced groups (deviation >5%):** None
+
+**Perfect stratification achieved** - every group maintains 10% ± 0.1% validation proportion.
+
+### File Organization
+
+**Method:** Physical file move (not copy) to conserve disk space  
+**Source:** Flat `datasets/indicdlp_subset/images/*.png`  
+**Destination:**
+- `datasets/indicdlp_subset/images/train/<filename>`
+- `datasets/indicdlp_subset/images/val/<filename>`
+
+**Verification:**
+- Train files: 9,306 ✓
+- Val files: 1,035 ✓
+- Sum: 10,341 ✓
+- Filename overlap: 0 ✓
+- Flat directory cleaned: Yes ✓
+
+### Manifest
+
+**Split assignments saved to:** `d:\AksharDrishti_1\split_manifest.csv`  
+**Columns:** filename, language, domain, original_split, split
+
+The manifest records which original COCO split (train2017/val2017/test2017) each image came from, alongside its new train/val assignment.
+
+### Next Steps
+
+**Completed:**
+- ✅ Image extraction (10,341 files, 6.90 GB)
+- ✅ Stratified train/val split (90/10 ratio, seed=42)
+- ✅ Physical file organization into subdirectories
+
+**Pending:**
+- YOLO annotation conversion (separate step)
+- Dataset configuration file generation
+- Final dataset validation

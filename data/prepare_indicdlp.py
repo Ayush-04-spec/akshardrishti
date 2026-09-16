@@ -42,7 +42,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("prepare_indicdlp")
 
 DEFAULT_LANGUAGES = ["hindi", "marathi", "english"]
-DEFAULT_DOMAINS = ["acts_and_rules", "forms", "notices", "newspapers", "question_papers"]
+DEFAULT_DOMAINS = ["acts_rules", "forms", "notice", "newspaper", "question_paper"]
 
 
 # --------------------------------------------------------------------- helpers
@@ -79,6 +79,149 @@ def _get_field(row: dict, candidates: tuple[str, ...]) -> str | None:
 # --------------------------------------------------------------------- inspect
 
 
+def load_local_annotations(json_path: str) -> dict:
+    """Load a COCO-style annotation JSON from disk.
+    
+    Args:
+        json_path: Path to instances_*.json file
+        
+    Returns:
+        Dict with keys: images, annotations, categories
+    """
+    with open(json_path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def map_category_id_to_name(coco_dict: dict) -> dict[int, str]:
+    """Build category_id -> normalized_category_name mapping.
+    
+    Args:
+        coco_dict: COCO-format dict with 'categories' key
+        
+    Returns:
+        Dict mapping category IDs to normalized category names
+    """
+    return {
+        cat["id"]: normalize_category_name(cat["name"])
+        for cat in coco_dict.get("categories", [])
+    }
+
+
+def build_filtered_image_list(
+    coco_dict: dict,
+    languages: list[str],
+    domains: list[str],
+    max_images: int | None
+) -> list[dict]:
+    """Filter images by language and domain, optionally capping the result.
+    
+    Args:
+        coco_dict: COCO-format dict with 'images' key
+        languages: List of language names (will be normalized)
+        domains: List of domain names (will be normalized)
+        max_images: Maximum images to return, or None for no cap
+        
+    Returns:
+        List of image dicts that match filters
+    """
+    lang_filter = {_norm(lang) for lang in languages} if languages else None
+    dom_filter = {_norm(dom) for dom in domains} if domains else None
+    
+    filtered = []
+    for img in coco_dict.get("images", []):
+        # Extract and normalize language
+        lang = _norm(img.get("language", ""))
+        if lang_filter and lang not in lang_filter:
+            continue
+            
+        # Extract and normalize domain
+        dom = _norm(img.get("document_category", ""))
+        if dom_filter and dom not in dom_filter:
+            continue
+            
+        filtered.append(img)
+        
+        if max_images is not None and len(filtered) >= max_images:
+            break
+    
+    return filtered
+
+
+def map_annotations_to_images(coco_dict: dict) -> dict[int, list[dict]]:
+    """Build image_id -> list of annotation entries mapping.
+    
+    Args:
+        coco_dict: COCO-format dict with 'annotations' key
+        
+    Returns:
+        Dict mapping image IDs to lists of their annotations
+    """
+    from collections import defaultdict
+    
+    ann_map = defaultdict(list)
+    for ann in coco_dict.get("annotations", []):
+        image_id = ann.get("image_id")
+        if image_id is not None:
+            ann_map[image_id].append(ann)
+    
+    return dict(ann_map)
+
+
+def iter_tar_images(tar_path: str, filenames: set[str]):
+    """Extract images from tar file in a single pass.
+    
+    Opens the tar ONCE and iterates through all members. For each member whose
+    name matches an entry in the filenames set, yields (filename, raw_bytes).
+    
+    This is significantly faster than opening the tar separately for each file
+    when extracting thousands of images.
+    
+    Args:
+        tar_path: Path to the tar file
+        filenames: Set of filenames to extract (e.g., {'indicdlp/train2017/image.png'})
+        
+    Yields:
+        Tuple of (filename, raw_bytes) for each matching image
+        
+    Example:
+        >>> target_files = {'indicdlp/train2017/img1.png', 'indicdlp/val2017/img2.png'}
+        >>> for filename, data in iter_tar_images('data.tar', target_files):
+        ...     with open(f'output/{filename}', 'wb') as f:
+        ...         f.write(data)
+    """
+    import tarfile
+    
+    log.info("Opening tar file: %s", tar_path)
+    log.info("Looking for %d images", len(filenames))
+    
+    found_count = 0
+    with tarfile.open(tar_path, 'r') as tar:
+        for member in tar:
+            # Only process regular files (not directories)
+            if not member.isfile():
+                continue
+            
+            # Check if this file is in our target set
+            # Try both the full path and just the filename
+            if member.name in filenames or Path(member.name).name in filenames:
+                # Extract the file contents
+                extracted_file = tar.extractfile(member)
+                if extracted_file:
+                    data = extracted_file.read()
+                    # Yield the base filename (not full path in tar)
+                    yield Path(member.name).name, data
+                    found_count += 1
+                    
+                    # Progress logging every 1000 images
+                    if found_count % 1000 == 0:
+                        log.info("Extracted %d / %d images...", found_count, len(filenames))
+    
+    log.info("Extraction complete: %d images found", found_count)
+
+
+# --------------------------------------------------------------------- inspect
+
+
 def inspect(repo: str, split: str, limit: int) -> None:
     """Dump the real schema so class_map.yaml can be reconciled against it.
 
@@ -97,7 +240,7 @@ def inspect(repo: str, split: str, limit: int) -> None:
             break
         keys_seen.update(row.keys())
         lang = _get_field(row, ("language", "lang", "language_name"))
-        dom = _get_field(row, ("domain", "category", "doc_type", "document_type"))
+        dom = _get_field(row, ("document_category", "domain", "category", "doc_type", "document_type"))
         if lang:
             languages[_norm(lang)] += 1
         if dom:
@@ -225,7 +368,7 @@ def export(
             stats["seen"] += 1
 
             lang = _norm(_get_field(row, ("language", "lang", "language_name")) or "")
-            dom = _norm(_get_field(row, ("domain", "category", "doc_type", "document_type")) or "")
+            dom = _norm(_get_field(row, ("document_category", "domain", "category", "doc_type", "document_type")) or "")
             if lang_filter and lang and lang not in lang_filter:
                 continue
             if dom_filter and dom and dom not in dom_filter:
