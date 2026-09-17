@@ -44,7 +44,7 @@ def main() -> None:
     p.add_argument("--workers", type=int, default=4)
     p.add_argument("--patience", type=int, default=15)
     p.add_argument("--name", default="akshardrishti_layout")
-    p.add_argument("--project", default="runs/detect")
+    p.add_argument("--project", default=None, help="output directory; defaults to <cwd>/runs/detect")
     p.add_argument("--lr0", type=float, default=0.01)
     p.add_argument("--optimizer", default="auto")
     p.add_argument("--amp", action="store_true", default=True, help="mixed precision (keep on for T4)")
@@ -57,6 +57,12 @@ def main() -> None:
 
     if not args.data.exists():
         raise SystemExit(f"data.yaml not found: {args.data}\nRun data/prepare_indicdlp.py first.")
+
+    # Resolve project to an absolute path so ultralytics never doubles it
+    # when the subprocess cwd differs from the repo root.
+    if args.project is None:
+        args.project = str(Path(args.data).resolve().parent.parent / "runs" / "detect")
+    args.project = str(Path(args.project).resolve())
 
     if args.wandb:
         import os
