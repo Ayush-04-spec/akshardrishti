@@ -115,13 +115,17 @@ def main() -> None:
         hsv_v=0.3,
     )
 
-    best = Path(args.project) / args.name / "weights" / "best.pt"
+    # Use the absolute save_dir that ultralytics actually used, not the
+    # relative args.project (which breaks when the process cwd shifts).
+    save_dir = Path(model.trainer.save_dir).resolve()
+    best = save_dir / "weights" / "best.pt"
     print(f"\nBest weights: {best}")
 
     metrics = model.val(data=str(args.data), imgsz=args.imgsz, device=args.device)
     results = _report(metrics, args.name)
 
-    out_json = Path(args.project) / args.name / "akshardrishti_metrics.json"
+    out_json = save_dir / "akshardrishti_metrics.json"
+    out_json.parent.mkdir(parents=True, exist_ok=True)
     out_json.write_text(json.dumps(results, indent=2), encoding="utf-8")
     print(f"Metrics written to {out_json}")
 
