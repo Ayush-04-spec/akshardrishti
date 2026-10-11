@@ -151,7 +151,7 @@ def main() -> None:
 
     start_epoch, best_cer, bad_epochs = 0, float("inf"), 0
     if args.resume and args.resume.exists():
-        ckpt = torch.load(args.resume, map_location=device)
+        ckpt = torch.load(args.resume, map_location=device, weights_only=False)
         model.load_state_dict(ckpt["model"])
         optimizer.load_state_dict(ckpt["optimizer"])
         start_epoch = ckpt.get("epoch", 0) + 1
@@ -243,7 +243,7 @@ def main() -> None:
     test_csv = args.data / "index_test.csv"
     if test_csv.exists():
         log.info("evaluating best checkpoint on the test split")
-        model.load_state_dict(torch.load(args.out / "crnn_mozhi_himr.pt", map_location=device)["model"])
+        model.load_state_dict(torch.load(args.out / "crnn_mozhi_himr.pt", map_location=device, weights_only=False)["model"])
         test_ds = LineImageDataset(load_index(test_csv), charset, args.img_height, args.max_width, augment=False)
         test_loader = DataLoader(test_ds, batch_size=args.batch, shuffle=False,
                                  num_workers=args.workers, collate_fn=ctc_collate)
