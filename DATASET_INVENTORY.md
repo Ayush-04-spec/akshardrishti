@@ -1425,3 +1425,215 @@ The manifest records which original COCO split (train2017/val2017/test2017) each
 - YOLO annotation conversion (separate step)
 - Dataset configuration file generation
 - Final dataset validation
+
+---
+
+## Post-Training Audit
+
+**Date:** 2026-10-11  
+**Investigator:** Automated audit script  
+**Purpose:** Verify weight files, config paths, dataset integrity, and training data reconciliation after YOLO and CRNN training completion
+
+---
+
+### STEP 1 — Weights Inventory
+
+| File Path | Size (MB) | Last Modified | SHA256 Hash |
+|-----------|-----------|---------------|-------------|
+| `weights/layout/akshardrishti_layout_best.pt/best.pt` | 194.23 | 2026-10-10 09:32:13 | `5A927BAF51EE9EF3DDEA1DFFDAE954C73869A17B0614836F8856AA77B6AD4AED` |
+| `weights/recognize/charset/charset_deva.txt` | 0.00 | 2026-10-11 21:44:54 | `E6D5EAA89BBC2D62A45E64C6E4CA0E07F69B1D37F52FFA3894D3183E66E973DF` |
+| `weights/recognize/crnn/crnn_mozhi_himr.pt` | 100.62 | 2026-10-11 21:45:18 | `626E6B86968FA550DD72E3BDBB9E1119F0B7C0195E65A0219B687FDF1151939A` |
+
+**Charset Character Count:**
+- `charset_deva.txt` contains **160 lines** (159 non-empty characters + 1 blank line representing space/separator)
+- Expected: 160 characters + CTC blank (161 total CRNN output classes)
+- Status: ✅ **CORRECT** (160 chars in file, +1 CTC blank added by model = 161 classes)
+
+---
+
+### STEP 2 — Config vs Actual Files
+
+**Configuration Paths from `configs/pipeline.yaml`:**
+
+| Config Key | Configured Path | Exists |
+|------------|----------------|--------|
+| `layout.weights` | `./weights/layout/yolo11l_indicdlp.pt` | ❌ False |
+| `crnn_mozhi.weights` | `./weights/recognize/crnn_mozhi_himr.pt` | ❌ False |
+| `crnn_mozhi.charset` | `./weights/recognize/charset_deva.txt` | ❌ False |
+
+**Actual Files on Disk:**
+- `weights/layout/akshardrishti_layout_best.pt/best.pt` (✓ exists)
+- `weights/recognize/crnn/crnn_mozhi_himr.pt` (✓ exists)
+- `weights/recognize/charset/charset_deva.txt` (✓ exists)
+
+**Mismatches Identified:**
+
+1. **Layout weights:**
+   - **Configured:** `./weights/layout/yolo11l_indicdlp.pt`
+   - **Actual:** `./weights/layout/akshardrishti_layout_best.pt/best.pt`
+   - **Issue:** Filename mismatch + nested in extra directory
+
+2. **CRNN weights:**
+   - **Configured:** `./weights/recognize/crnn_mozhi_himr.pt`
+   - **Actual:** `./weights/recognize/crnn/crnn_mozhi_himr.pt`
+   - **Issue:** Missing `crnn/` subdirectory in path
+
+3. **Charset:**
+   - **Configured:** `./weights/recognize/charset_deva.txt`
+   - **Actual:** `./weights/recognize/charset/charset_deva.txt`
+   - **Issue:** Missing `charset/` subdirectory in path
+
+**Impact:** Pipeline will fail to load models. Requires either:
+- Updating `configs/pipeline.yaml` to match actual paths, OR
+- Reorganizing weight files to match configured paths
+
+---
+
+### STEP 3 — Real Per-Class Annotation Counts
+
+#### TRAIN SPLIT (datasets/indicdlp_subset/labels/train)
+
+| Index | Class Name | Total Annotations | Images With Class |
+|-------|------------|-------------------|-------------------|
+| 0 | title | 26,372 | 5,094 |
+| 1 | text | 67,225 | 5,581 |
+| 2 | list | 46,057 | 6,648 |
+| 3 | table | 3,347 | 2,350 |
+| 4 | figure | 17,755 | 2,329 |
+| 5 | caption | 3,187 | 1,488 |
+| 6 | header | 5,428 | 5,390 |
+| 7 | footer | 8,336 | 6,117 |
+| 8 | page_number | 14,985 | 7,535 |
+| 9 | stamp_seal | **0** | **0** |
+| 10 | signature | **0** | **0** |
+
+**Train Total:** 192,692 annotations across 9,306 images
+
+#### VAL SPLIT (datasets/indicdlp_subset/labels/val)
+
+| Index | Class Name | Total Annotations | Images With Class |
+|-------|------------|-------------------|-------------------|
+| 0 | title | 3,260 | 587 |
+| 1 | text | 8,026 | 631 |
+| 2 | list | 5,467 | 752 |
+| 3 | table | 405 | 251 |
+| 4 | figure | 2,226 | 254 |
+| 5 | caption | 349 | 164 |
+| 6 | header | 617 | 615 |
+| 7 | footer | 916 | 668 |
+| 8 | page_number | 1,674 | 866 |
+| 9 | stamp_seal | **0** | **0** |
+| 10 | signature | **0** | **0** |
+
+**Val Total:** 22,940 annotations across 1,035 images
+
+#### Confirmation
+
+**stamp_seal (class 9):**
+- TRAIN: 0 annotations, 0 images ❌
+- VAL: 0 annotations, 0 images ❌
+
+**signature (class 10):**
+- TRAIN: 0 annotations, 0 images ❌
+- VAL: 0 annotations, 0 images ❌
+
+**Status:** ✅ **CONFIRMED** — Both `stamp_seal` and `signature` classes have **ZERO annotations in BOTH splits**. These classes exist in the taxonomy (configs/class_map.yaml has mappings for them) but were completely absent from the IndicDLP subset used for training.
+
+**Training Impact:** The YOLO model was trained on 11 classes but only 9 had actual training data. The model will never predict classes 9 or 10 (can theoretically detect them if they appear at inference, but with zero training examples, performance will be random/poor).
+
+---
+
+### STEP 4 — Train/Val Leakage Check
+
+**Document Key Derivation Rule:**
+- Remove final `_<digits>` suffix IF base matches pattern `prefix_lang_docnum`
+- Examples:
+  - `fm_hi_000297_1` → `fm_hi_000297` (page 1 of document fm_hi_000297)
+  - `nt_en_000009_1` → `nt_en_000009` (page 1 of document nt_en_000009)
+  - `ar_en_000415` → `ar_en_000415` (no page suffix, unchanged)
+  - `qp_mr_000381_1` → `qp_mr_000381` (page 1 of document qp_mr_000381)
+  - `ar_en_000002` → `ar_en_000002` (no page suffix, unchanged)
+
+**Leakage Analysis Results:**
+
+| Metric | Count |
+|--------|-------|
+| Unique doc_keys in TRAIN | 9,306 |
+| Unique doc_keys in VAL | 1,035 |
+| Doc_keys appearing in BOTH | **0** |
+| Val images whose doc_key appears in train | **0 / 1,035 (0.0%)** |
+
+**Status:** ✅ **NO LEAKAGE DETECTED** — Zero overlap between train and val document keys. The splits are clean with respect to multi-page documents.
+
+**Interpretation:** The suffix-removal logic correctly groups pages from the same document, and the dataset split ensures no document appears in both train and val. This is the expected behavior for a well-constructed dataset split.
+
+---
+
+### STEP 5 — Mozhi Count Reconciliation
+
+**Prepared Index Files (from `data/prepare_mozhi.py`):**
+- `index_train.csv`: 159,913 rows
+- `index_val.csv`: 20,119 rows
+- `index_test.csv`: 20,028 rows
+- **Total:** 200,060 samples
+
+**Actual Training Counts (from training logs):**
+- Train: 159,909 samples (dropped 4)
+- Val: 20,118 samples (dropped 1)
+- Test: 20,028 samples (no drops mentioned)
+- **Total:** 200,055 samples
+
+**Discrepancy:** -4 train, -1 val = **5 samples dropped**
+
+**Filter Identified:**
+- **Location:** `train/dataset.py`, `LineImageDataset.__init__()`
+- **Parameter:** `drop_uncovered=True` (default)
+- **Condition:** Drops samples where `charset.coverage(text) < 0.999`
+- **Meaning:** Samples containing characters NOT in `charset_deva.txt` are excluded
+
+**Explanation:**
+The 4 train + 1 val discrepancy is explained by the `drop_uncovered` filter in `train/dataset.py` lines 46-49. These 5 samples contained one or more characters outside the 160-character Devanagari charset built from the training data. The filter prevents training on unparseable labels (chars with no corresponding output class), which would cause errors or corrupt gradients.
+
+**Status:** ✅ **RECONCILED** — The 5-sample difference is accounted for by out-of-charset character filtering, which is correct behavior.
+
+---
+
+### VERIFICATION RESULTS
+
+**1. Git Status Check:**
+```
+M  DATASET_INVENTORY.md
+```
+✅ **PASS** — Only DATASET_INVENTORY.md modified (this audit section appended)
+
+**2. Weights File Integrity:**
+All weight file hashes computed at audit start (before any operations). Files remain untouched:
+- Layout weights: 194.23 MB, SHA256 `5A927BAF...`
+- CRNN weights: 100.62 MB, SHA256 `626E6B86...`
+- Charset: SHA256 `E6D5EAA89BBC...`
+
+✅ **PASS** — Weights files untouched during audit
+
+**3. Annotation Count Cross-Check:**
+- Train label files: 192,692 annotations counted
+- Val label files: 22,940 annotations counted
+- Sum across all classes (train): 26,372 + 67,225 + 46,057 + 3,347 + 17,755 + 3,187 + 5,428 + 8,336 + 14,985 + 0 + 0 = **192,692** ✓
+- Sum across all classes (val): 3,260 + 8,026 + 5,467 + 405 + 2,226 + 349 + 617 + 916 + 1,674 + 0 + 0 = **22,940** ✓
+
+✅ **PASS** — Per-class annotation totals match raw line counts
+
+---
+
+### SUMMARY
+
+| Check | Status | Details |
+|-------|--------|---------|
+| Weight files present | ✅ PASS | 3/3 files found, correct sizes |
+| Charset character count | ✅ PASS | 160 chars (+ CTC blank = 161 classes) |
+| Config path mismatches | ⚠️ 3 ISSUES | Layout, CRNN, charset paths don't match actual locations |
+| stamp_seal / signature data | ✅ CONFIRMED | Zero annotations in both train/val splits |
+| Train/val leakage | ✅ PASS | 0% overlap, clean document-level split |
+| Mozhi count discrepancy | ✅ RECONCILED | 5 samples dropped due to out-of-charset characters |
+| File modifications | ✅ PASS | Only DATASET_INVENTORY.md changed |
+
+**Action Required:** Update `configs/pipeline.yaml` to correct the 3 path mismatches before running inference pipeline.
