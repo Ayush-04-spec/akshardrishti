@@ -64,3 +64,7 @@ Never create, download, or stub out files in weights/. If a model weight is miss
 ## CRITICAL RULE 5 — Hardware constraints
 
 Local machine has an NVIDIA RTX 3050 Laptop GPU with only 4GB VRAM. This is NOT enough for real training (layout training needs ~8-16GB, per TECHNICAL_REPORT.md section 8.3.2). NEVER run train_layout.py, train_crnn.py, or train_scriptid.py locally at production batch size/imgsz. Local GPU may only be used for tiny smoke tests (batch=1 or 2, a handful of steps) to verify code runs without crashing. All real training happens on Kaggle/Colab dual-T4 per TECHNICAL_REPORT.md section 9.
+
+## Kaggle Auth Note
+
+The kaggle library auto-authenticates on `import kaggle` and consumes KAGGLE_API_TOKEN from the environment afterward (known upstream bug, kaggle-api issue #882). Any script needing the Kaggle API should use `import kaggle; api = kaggle.api` (the already-authenticated singleton) — NOT `from kaggle.api.kaggle_api_extended import KaggleApi; api = KaggleApi(); api.authenticate()`, which can silently fail on second use.
