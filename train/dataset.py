@@ -128,8 +128,14 @@ def ctc_collate(batch):
         torch.nn.functional.pad(img, (0, max_w - img.shape[-1]), value=1.0) for img in images
     ])
 
-    # CTC input length = feature width after the CNN, which downsamples width /4.
-    input_lengths = torch.full((len(images),), max_w // 4, dtype=torch.long)
+    # CTC input length = actual feature width after the CNN.
+    # The CNN downsamples width by /4 via two MaxPool2d(2,2), then the final
+    # Conv2d(kernel=2, padding=0) removes 1 more column. Total: (W//2)//2 - 1.
+    # We compute this exactly per-sample using the padded width.
+    input_lengths = torch.tensor(
+        [max(1, (img.shape[-1] // 2 // 2) - 1) for img in images],
+        dtype=torch.long
+    )
     flat_targets = torch.cat([t for t in targets]) if targets else torch.tensor([], dtype=torch.long)
     return padded, flat_targets, input_lengths, torch.tensor(target_lengths, dtype=torch.long), list(texts)
 
