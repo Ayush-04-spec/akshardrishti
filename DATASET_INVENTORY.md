@@ -1652,7 +1652,7 @@ All weight file hashes computed at audit start (before any operations). Files re
 
 | Path | Size | Justification given in DELETION_REPORT.md |
 |------|------|-------------------------------------------|
-| `d:\AksharDrishti_1\indicdlp.tar` | 79.95 GB | "Already extracted to indicdlp_subset/" (note: extraction was done on Kaggle, not locally) |
+| `d:\AksharDrishti_1\indicdlp.tar` | 79.95 GB | "Already extracted to indicdlp_subset/" (correction: the 10,341-image subset was extracted locally from this archive on 2026-09-16, before the deletion; the same subset was later uploaded to Kaggle as a backup) |
 | `d:\AksharDrishti_1\indicdlp\` | 682 MB | "Duplicate annotation JSONs — same files in indicdlp_annotations_only/" |
 | `d:\AksharDrishti_1\placeholder_text_samples\` | 0.06 MB | "15 investigation sample images, not used in training" |
 | `d:\AksharDrishti_1\placeholder_images_temp\` | 7.10 MB | "Temporary exploration directory, not referenced by code" |
