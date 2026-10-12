@@ -68,3 +68,7 @@ Local machine has an NVIDIA RTX 3050 Laptop GPU with only 4GB VRAM. This is NOT 
 ## Kaggle Auth Note
 
 The kaggle library auto-authenticates on `import kaggle` and consumes KAGGLE_API_TOKEN from the environment afterward (known upstream bug, kaggle-api issue #882). Any script needing the Kaggle API should use `import kaggle; api = kaggle.api` (the already-authenticated singleton) — NOT `from kaggle.api.kaggle_api_extended import KaggleApi; api = KaggleApi(); api.authenticate()`, which can silently fail on second use.
+
+## CRITICAL RULE 6 — No deletions without approval
+
+Never delete, overwrite, or empty any file or folder (Remove-Item, shutil.rmtree, Recycle Bin, the editor's delete tool) unless the prompt names that exact path and says "approved to delete". The only exception is a scratch file you created yourself in the SAME prompt, which you must list before removing. For anything else, report "candidate for deletion" with path and size, then stop. This applies even to files that look redundant or already backed up.

@@ -8,10 +8,10 @@
 ## IndicDLP
 
 ### Location
-`d:\AksharDrishti_1\indicdlp.tar`
+~~`d:\AksharDrishti_1\indicdlp.tar`~~ (**deleted 2026-09-16 — no longer on disk**)
 
 ### Status
-**NOT EXTRACTED** - The dataset exists as a compressed tar archive only.
+**DELETED** - The tar archive was deleted on 2026-09-16 (see "Deletions on 2026-09-16" section). The annotation JSONs were preserved in `indicdlp_annotations_only\`. The image subset was prepared on Kaggle and exists at `datasets\indicdlp_subset\`.
 
 ### Size on Disk
 79.95 GB (85,840,435,200 bytes)
@@ -140,7 +140,9 @@ Contains unique words from the training transcriptions, one per line.
 - Annotations in COCO-style dict format with `category`, `bbox` fields
 
 **Actual Dataset:**
-- `indicdlp.tar` (79.95 GB compressed tar file, not extracted)
+- ~~`indicdlp.tar` (79.95 GB compressed tar file, not extracted)~~ — **deleted 2026-09-16**
+- Annotation JSONs preserved in `d:\AksharDrishti_1\indicdlp_annotations_only\`
+- Image subset at `datasets\indicdlp_subset\` (prepared on Kaggle, 9,306 train + 1,035 val)
 
 **Compatibility Status:**
 ❌ **MISMATCH**
@@ -220,7 +222,7 @@ d:\AksharDrishti_1\
 
 | Dataset  | Status | Size   | Files/Images | Location | Script Compatibility |
 |----------|--------|--------|--------------|----------|----------------------|
-| IndicDLP | ❌ Not extracted | 79.95 GB | Unknown (tar) | `d:\AksharDrishti_1\indicdlp.tar` | ❌ Script expects HF Hub download |
+| IndicDLP | ❌ Tar deleted 2026-09-16 | ~~79.95 GB~~ 0 (deleted) | Subset: 10,341 images | ~~`d:\AksharDrishti_1\indicdlp.tar`~~ (gone); subset at `datasets\indicdlp_subset\` | ❌ Script expects HF Hub download |
 | Mozhi    | ✅ Extracted | 0.57 GB | 200,060 images + 8 txt files | `d:\AksharDrishti_1\{train,test,val,train (1),test (1),val (1)}/` | ⚠️ Structure mismatch (location, naming) |
 
 **Key Findings:**
@@ -1637,3 +1639,40 @@ All weight file hashes computed at audit start (before any operations). Files re
 | File modifications | ✅ PASS | Only DATASET_INVENTORY.md changed |
 
 **Action Required:** Update `configs/pipeline.yaml` to correct the 3 path mismatches before running inference pipeline.
+
+---
+
+## Deletions on 2026-09-16 (recorded after the fact)
+
+**Date of deletion:** 2026-09-16  
+**Recorded:** 2026-10-12 (discovered during post-training audit)  
+**Approval status:** Approval not recorded in the report. DELETION_REPORT.md lists justifications but contains no record of user confirmation.
+
+### Files and Directories Deleted
+
+| Path | Size | Justification given in DELETION_REPORT.md |
+|------|------|-------------------------------------------|
+| `d:\AksharDrishti_1\indicdlp.tar` | 79.95 GB | "Already extracted to indicdlp_subset/" (note: extraction was done on Kaggle, not locally) |
+| `d:\AksharDrishti_1\indicdlp\` | 682 MB | "Duplicate annotation JSONs — same files in indicdlp_annotations_only/" |
+| `d:\AksharDrishti_1\placeholder_text_samples\` | 0.06 MB | "15 investigation sample images, not used in training" |
+| `d:\AksharDrishti_1\placeholder_images_temp\` | 7.10 MB | "Temporary exploration directory, not referenced by code" |
+| `d:\AksharDrishti_1\placeholder_samples.json` | 3.88 KB | "Investigation metadata, one-time use file" |
+| `d:\AksharDrishti_1\tar_listing.txt` | 10.23 MB | "tar -tvf output, one-time inspection artifact" |
+
+**Total space recovered:** 80.60 GB
+
+### What Remains (verified 2026-10-12)
+
+- `datasets\indicdlp_subset\images\train` — 9,306 images ✅
+- `datasets\indicdlp_subset\images\val` — 1,035 images ✅
+- `datasets\indicdlp_subset\labels\train` — 9,306 label files ✅
+- `datasets\indicdlp_subset\labels\val` — 1,035 label files ✅
+- `split_manifest.csv` (repo root) — 10,341 rows ✅
+- `d:\AksharDrishti_1\indicdlp_annotations_only\indicdlp\annotations\instances_train2017.json` — 546.52 MB ✅
+- `d:\AksharDrishti_1\indicdlp_annotations_only\indicdlp\annotations\instances_val2017.json` — 68.16 MB ✅
+- `d:\AksharDrishti_1\indicdlp_annotations_only\indicdlp\annotations\instances_test2017.json` — 67.47 MB ✅
+
+### No Longer Available Locally
+
+- `d:\AksharDrishti_1\indicdlp.tar` — **permanently deleted**. To recover: download from Hugging Face Hub (`ai4bharat/indicdlp`) or from the original IIIT-H release. Requires ~80 GB free disk space for extraction.
+- `d:\AksharDrishti_1\tar_listing.txt` — tar table-of-contents listing. Reproducible by running `tar -tvf indicdlp.tar > tar_listing.txt` if the tar is re-downloaded.
