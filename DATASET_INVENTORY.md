@@ -1676,3 +1676,45 @@ All weight file hashes computed at audit start (before any operations). Files re
 
 - `d:\AksharDrishti_1\indicdlp.tar` — **permanently deleted**. To recover: download from Hugging Face Hub (`ai4bharat/indicdlp`) or from the original IIIT-H release. Requires ~80 GB free disk space for extraction.
 - `d:\AksharDrishti_1\tar_listing.txt` — tar table-of-contents listing. Reproducible by running `tar -tvf indicdlp.tar > tar_listing.txt` if the tar is re-downloaded.
+
+---
+
+## Weights Provenance
+
+**Recorded:** 2026-10-12  
+**Directory:** `weights/` (gitignored — not tracked in the repository)
+
+### File Table
+
+| Path | Size (MB) | SHA-256 | Description |
+|------|-----------|---------|-------------|
+| `weights/layout/yolo11l_indicdlp.pt` | 194.23 | `5A927BAF51EE9EF3DDEA1DFFDAE954C73869A17B0614836F8856AA77B6AD4AED` | YOLO11l layout detector trained on the IndicDLP 10,341-image subset on Kaggle (2× T4). Detects 9 of 11 configured classes (stamp_seal and signature had zero annotations in the training data). |
+| `weights/recognize/crnn_mozhi_himr.pt` | 33.54 | `7E338A7BB3CA482250C5A20DD7224AACF1D488CC12D5A33F6F21CA23CA3C92C9` | **Slim inference checkpoint** — model weights only, no optimizer state, no training args. Exported from `crnn_mozhi_himr_full.pt` by `train/export_crnn_slim.py`. Loads with `torch.load(..., weights_only=True)` on any Python version. Contains keys: `model` (47 tensors, 8,790,436 parameters), `charset_size` (161), `source_sha256`, `source_epoch` (21), `format` (`akshardrishti-crnn-slim-v1`). |
+| `weights/recognize/crnn_mozhi_himr_full.pt` | 100.62 | `626E6B86968FA550DD72E3BDBB9E1119F0B7C0195E65A0219B687FDF1151939A` | **Original training checkpoint** from Google Colab (Python 3.13, T4). Contains model weights, optimizer state, training args (pathlib.PosixPath objects), best_cer, epoch. Cannot be loaded with `weights_only=True` on Python ≤ 3.12 due to `pathlib._local.PosixPath` pickle incompatibility. Kept as the authoritative source; use the slim file for inference. |
+| `weights/recognize/charset_deva.txt` | 0.00 | `E6D5EAA89BBC2D62A45E64C6E4CA0E07F69B1D37F52FFA3894D3183E66E973DF` | 160-character Devanagari charset built from the Mozhi training split (Hindi + Marathi). One character per line. The CRNN output layer has 161 classes: these 160 characters plus the CTC blank token (index 0 by convention). Built by `data/prepare_mozhi.py --charset-only`. |
+
+### Lineage
+
+```
+Mozhi dataset (Hindi + Marathi)
+  └─ data/prepare_mozhi.py
+       ├─ weights/recognize/charset_deva.txt   (built from train split only)
+       └─ datasets/mozhi_raw/index_{train,val,test}.csv
+
+train/train_crnn.py  (Google Colab, Python 3.13, T4, epoch 21 best val)
+  └─ weights/recognize/crnn_mozhi_himr_full.pt
+
+train/export_crnn_slim.py  (local, Python 3.12, verifies source SHA-256 first)
+  └─ weights/recognize/crnn_mozhi_himr.pt  ← used by akshardrishti/recognize/crnn.py
+
+IndicDLP subset (10,341 images, extracted 2026-09-16)
+  └─ train/train_layout.py  (Kaggle, 2× T4)
+       └─ weights/layout/yolo11l_indicdlp.pt
+```
+
+### Config alignment
+
+`configs/pipeline.yaml` points to:
+- `layout.weights` → `./weights/layout/yolo11l_indicdlp.pt` ✅ exists
+- `recognize.backends.crnn_mozhi.weights` → `./weights/recognize/crnn_mozhi_himr.pt` ✅ exists (slim)
+- `recognize.backends.crnn_mozhi.charset` → `./weights/recognize/charset_deva.txt` ✅ exists

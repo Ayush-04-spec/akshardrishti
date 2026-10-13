@@ -42,7 +42,16 @@ class CRNNRecognizer(Recognizer):
         self.beam_width = int(self.config.get("beam_width", 10))
 
         self.model = CRNN(num_classes=len(self.charset), img_height=self.img_height)
-        state = torch.load(weights, map_location=self.device)
+        try:
+            state = torch.load(weights, map_location=self.device, weights_only=True)
+        except (Exception) as _e:
+            if type(_e).__name__ in ("UnpicklingError", "ModuleNotFoundError") or \
+                    "pickle" in str(_e).lower() or "pathlib" in str(_e).lower():
+                raise RuntimeError(
+                    "CRNN checkpoint is not in slim format; run train/export_crnn_slim.py "
+                    "and point the config at the slim file."
+                ) from _e
+            raise
         self.model.load_state_dict(state["model"] if "model" in state else state)
         self.model.to(self.device).eval()
         self._torch = torch
