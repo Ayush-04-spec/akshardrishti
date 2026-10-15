@@ -95,6 +95,7 @@ recognize:
       img_height: 32
       max_width: 512
       beam_width: 10               # 1 = greedy CTC decode
+      right_pad: 64                # trailing white columns per crop; chosen on validation
     trocr_printed:
       model_id: microsoft/trocr-base-printed
       max_new_tokens: 128

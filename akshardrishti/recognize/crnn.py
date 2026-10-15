@@ -40,6 +40,8 @@ class CRNNRecognizer(Recognizer):
         self.img_height = int(self.config.get("img_height", 32))
         self.max_width = int(self.config.get("max_width", 512))
         self.beam_width = int(self.config.get("beam_width", 10))
+        # right_pad chosen on validation; see results/crnn_padding_sweep.json
+        self.right_pad = int(self.config.get("right_pad", 64))
 
         self.model = CRNN(num_classes=len(self.charset), img_height=self.img_height)
         try:
@@ -66,7 +68,12 @@ class CRNNRecognizer(Recognizer):
             crop = cv2.resize(crop, (self.max_width, self.img_height), interpolation=cv2.INTER_AREA)
         tensor = self._torch.from_numpy(crop.astype(np.float32) / 255.0)
         tensor = (tensor - 0.5) / 0.5
-        return tensor.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
+        tensor = tensor.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
+        if self.right_pad > 0:
+            # Append right_pad white columns (1.0 = white in normalised [-1,1] space).
+            # right_pad chosen on validation; see results/crnn_padding_sweep.json
+            tensor = self._torch.nn.functional.pad(tensor, (0, self.right_pad), value=1.0)
+        return tensor
 
     def recognize(self, image: np.ndarray, script: str = "deva") -> RecognitionResult:
         from .crnn_model import beam_decode, greedy_decode
