@@ -1,1 +1,25 @@
-page_id,source_url,language,layout_type,quality,has_seal,has_signature,annotator,reviewer
+﻿line_id,original_filename,source_zip,language,domain,scan_type,has_table,has_stamp_seal,has_signature,notes
+BM_001,Doc001.png,Dataset1_0.zip,marathi,order_circular,clean,no,no,check,letter-style order without emblem; some Latin script
+BM_002,Doc002.png,Dataset1_0.zip,marathi,order_circular,clean,yes,yes,yes,"emblem, table, round seal, signature"
+BM_003,Doc003.png,Dataset1_0.zip,marathi,order_circular,clean,yes,yes,yes,"office order with emblem, table, seal, signature"
+BM_004,Doc004.png,Dataset1_0.zip,marathi,order_circular,clean,yes,yes,yes,circular with emblem; email/URL in Latin script
+BM_005,Doc005.png,Dataset1_0.zip,marathi,tender,clean,yes,check,yes,tender notice; Latin script in email/URL/IDs
+BM_006,Doc006.png,Dataset1_0.zip,marathi,order_circular,clean,yes,check,yes,order with emblem and boxed table
+BM_007,Doc007.png,Dataset1_0.zip,marathi,notice,clean,yes,no,yes,office notice with table
+BM_008,Doc008.png,Dataset1_0.zip,marathi,report,clean,yes,no,yes,report with table and two signature blocks
+BM_009,Doc009.png,Dataset1_0.zip,marathi,order_circular,clean,no,yes,yes,"circular with emblem, seals, signatures; Doc010 is a byte-identical duplicate and is excluded"
+BM_010,doc_0001.png,doc_0001.zip,marathi,order_circular,clean,no,no,check,circular with reference list; clean render
+BM_011,doc_0026.png,doc_0001.zip,marathi,order_circular,clean,no,no,check,order with references and numbered paragraphs
+BM_012,doc_0031.png,doc_0001.zip,marathi,order_circular,scan,no,check,yes,letter with emblem at top and handwritten signature
+BM_013,doc_0014.png,doc_0001.zip,marathi,wide_table,clean,yes,no,no,"landscape page, dense multi-column table"
+BM_014,doc_0016.png,doc_0001.zip,marathi,wide_table,clean,yes,no,no,landscape table with highlighted (yellow) cells
+BM_015,doc_0036.png,doc_0001.zip,marathi,wide_table,scan_rotated90,yes,check,no,"page rotated 90 degrees, table text runs sideways; see guidelines"
+BM_016,doc_0004.png,doc_0001.zip,marathi,order_circular,camera,check,check,check,"phone photo: skewed, grey background, punch holes"
+BM_017,doc_0005.png,doc_0001.zip,marathi,order_circular,camera,check,check,check,"phone photo: skewed, grey background, signature near bottom"
+BM_018,doc_0023.png,doc_0001.zip,marathi,order_circular,camera,check,check,yes,photographed page with signature
+BM_019,doc_0062.png,doc_0001.zip,marathi,transfer_list,clean,yes,no,no,several small tables with district headings
+BM_020,doc_0079.png,doc_0001.zip,marathi,transfer_list,clean,yes,no,no,title line above a table; tests heading vs table split
+BM_021,doc_0095.png,doc_0001.zip,marathi,transfer_list,clean,yes,no,no,table continued from previous page plus new heading and table
+BM_022,doc_0007.png,doc_0001.zip,english,tender,clean,yes,no,check,English tender corrigendum with table
+BM_023,doc_0032.png,doc_0001.zip,marathi,other,scan_rotated90,no,no,no,rotated title-style page with large heading text; see guidelines
+BM_024,doc_0039.png,doc_0001.zip,marathi,form_table,clean,yes,no,no,form-style tables under a heading block

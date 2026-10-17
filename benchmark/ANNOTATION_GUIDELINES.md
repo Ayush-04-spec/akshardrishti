@@ -1,201 +1,118 @@
-# AksharDrishti-Bench — Annotation Guidelines
+# AksharDrishti Benchmark: Annotation Guidelines
 
-**Target:** 50 real Indian government/legal pages · layout boxes + reading order + full ground-truth text
-**Team:** ~13 pages each · ~4–5 hours per person · finish by Day 7
-**Why it matters:** IndicDLP has boxes but no transcriptions. Without this benchmark there is **no CER
-number**, no results table, and no paper.
+These guidelines cover the pages in `benchmark/images/` (`BM_001.png` onward).
+Per-page information is in `benchmark/metadata.csv`.
 
----
+All annotators must apply the rules below the same way. If a rule is unclear,
+ask the lead and add the decision to the log at the end of this file instead
+of choosing privately.
 
-## Before anyone annotates a single page
+## 1. Workflow
 
-**Run the calibration round.** All four annotate the *same 5 pages*, then compare box-by-box. You will
-disagree — about what counts as a header, whether a two-line heading is one region or two, where a
-table ends. Discovering that on page 5 costs an hour. Discovering it on page 48 costs the deadline.
+1. Open a page from `benchmark/images/` together with its pre-labels from
+   `benchmark/gt_layout_prelabeled/` (created by `eval/prelabel_benchmark.py`).
+2. Correct the pre-labels: remove wrong boxes, fix classes, tighten boxes and
+   add missing ones. The pre-labels come from a detector that never saw a
+   stamp or a signature, so add every `stamp_seal` and `signature` by hand.
+3. Export in YOLO format (one `.txt` per image, same file stem as the image,
+   normalized `class cx cy w h`).
+4. Put the finished, reviewed file in `benchmark/gt_layout/`. Keep the
+   original pre-label file where it is.
+5. Never edit, rename, rotate or re-save the image files, and never delete
+   anything. Deletions need explicit approval from the lead.
 
-Resolve every disagreement, write the resolution into the "Team decisions" section at the bottom of
-this file, and only then start real annotation.
+## 2. The 11 layout classes
 
----
+| id | class | what to box |
+|----|-------|-------------|
+| 0 | title | The document title or subject line (for example a document-type heading such as a GR or circular heading, or the "subject" line), and section headings, including a district or division heading above a table. |
+| 1 | text | Running paragraph text: body paragraphs and the typed name and designation under a signature. One box per paragraph. |
+| 2 | list | A group of numbered or bulleted items, including a reference list and the forwarding or copy-to list. Box the whole list as one region. |
+| 3 | table | A whole table including its header row and outer border. One box per table. |
+| 4 | figure | Non-text graphics: the state emblem, logos, photos, diagrams, QR codes. The printed state emblem is a figure, not a stamp_seal. |
+| 5 | caption | A label tied to one specific figure or table, such as "Table 1" or "Figure 2". A heading that merely sits above a table is a title. |
+| 6 | header | The letterhead block in the top margin (government and department name, address line, reference number and date block), and running page headers. |
+| 7 | footer | Other text in the bottom margin, such as a repeated contact line or website line. |
+| 8 | page_number | A printed page number or a "page x of y" marker. |
+| 9 | stamp_seal | Round or rectangular office seals, rubber stamps and ink stamps. |
+| 10 | signature | A handwritten signature mark, or a digital-signature validity block. Box only the signature itself. |
 
-## 1. Sourcing pages
+Class ids follow the table above (0 to 10) and must be used as written.
 
-| Source | What to grab |
-|---|---|
-| `gr.maharashtra.gov.in` | Government Resolutions (GRs) — the core target |
-| eGazette | gazette notifications |
-| India Code | acts, rules, statutory notices |
-| District collectorate sites | public notices, tender documents |
-| Municipal corporation portals | forms, circulars |
+General rules:
 
-**Aim for a spread, not 50 of the same thing:**
+* Boxes are axis-aligned rectangles, as tight as possible around the content.
+* Annotate every region, including small ones (page numbers, stamps).
+* Do not box individual table rows or cells.
+* Regions normally do not overlap. A caption may sit next to its figure or
+  table, and a stamp or signature may overlap text; box the stamp or signature
+  itself and leave the text box as it is.
+* If you cannot decide between two classes, pick the closer one, put a note in
+  `metadata.csv`, and raise it with the lead.
 
-- **Language:** ~20 Marathi, ~15 Hindi, ~15 English/bilingual
-- **Layout:** ~25 single-column, ~15 multi-column, ~10 with tables
-- **Quality:** ~30 clean digital PDFs, ~20 scanned/photographed (skewed, noisy, low-DPI)
-- **Furniture:** at least 15 pages with stamps, seals or signatures
+## 3. Metadata hints
 
-That last row matters. `stamp_seal` and `signature` are the classes that distinguish this benchmark
-from every general-purpose document dataset. If only three pages have seals, the class is
-unmeasurable and a reviewer will say so.
+`has_table`, `has_stamp_seal`, `has_signature` and `domain` in
+`benchmark/metadata.csv` were pre-filled from a quick visual review. `check`
+means the reviewer was unsure. Confirm or correct every value while annotating
+and fix the row if it is wrong.
 
-Collect ~80 pages, keep the best 50.
+## 4. Stamps, seals and signatures
 
----
+The layout detector was trained with no examples of these two classes, so the
+pre-labels will not contain them. Annotate them carefully on every page that
+has them, because they will be reported as a separate group.
 
-## 2. Anonymisation — do this before annotating, not after
+## 5. Camera-photo pages (`scan_type=camera`)
 
-These are real government documents about real people. Before a page enters the benchmark:
+* Annotate the page exactly as it appears. Do not deskew, crop or enhance the
+  image file.
+* Use axis-aligned boxes that enclose each skewed block as tightly as you can.
+* Ignore the background around the page, shadows, punch holes and page edges.
+  They are not figures.
+* If text is cut off at the image edge, box the visible part.
+* If text is too blurred to read, still box it with its normal class and
+  transcribe it as `[illegible]`.
 
-- Black out personal names of private individuals (officials acting in their official capacity are fine)
-- Black out Aadhaar numbers, PAN, phone numbers, bank details, residential addresses
-- Black out photographs of individuals and specimen signatures of private persons
+## 6. Pages rotated by 90 degrees (`scan_type=scan_rotated90`)
 
-Redact the **image**, then transcribe the redacted version so the box and the text agree. Use
-`[REDACTED]` in the transcription where content was removed.
+* Keep the image file as it is. The ground truth must match the pixels the
+  pipeline sees, so do not rotate the file.
+* Draw boxes on the image as displayed (axis-aligned around the sideways
+  text).
+* In the `notes` column of `metadata.csv`, record which way the page must be
+  turned to read it upright, for example "turn 90 degrees clockwise".
+* Decide classes, reading order and transcription as if the page were upright
+  (top of the upright page = top of the document).
+* These pages are a separate group in the evaluation, because the pipeline is
+  not guaranteed to handle page rotation.
 
-Non-negotiable if the benchmark is published — and publishing it is the plan.
+## 7. Repeated transfer-list table pages (`domain=transfer_list`)
 
----
+The source folder holds many near-identical transfer or posting list pages.
+Only three are included, so do not add more without the lead's approval.
 
-## 3. Layout annotation
+* Box each table once as `table`, including its header row. A page can hold
+  several tables, one per district or division. Box each separately.
+* A district, division or section heading above a table is a `title` and is
+  boxed on its own.
+* A table that continues from the previous page and starts at the top without
+  a heading is still a `table`.
+* Do not box rows or cells.
+* For transcription, write each table row on one line with cells separated by
+  ` | `, copied exactly as printed. Agree the separator with the team before
+  starting and use it on every page.
 
-Tool: [Label Studio](https://labelstud.io/) (free, local) or CVAT. Export as COCO or Label Studio JSON.
+## 8. Text transcription
 
-### The 11 classes
+* Transcribe verbatim: keep the original spelling, punctuation and digits
+  (Devanagari digits stay Devanagari). Do not correct or normalize anything,
+  because scoring applies its own normalization to the ground truth side.
+* Reading order follows the order in which a person would read the page.
+* The transcription file format will be fixed together with the evaluation
+  script. Until then, keep one transcription file per page with one printed
+  line per text line.
 
-| Class | Use it for | Watch out for |
-|---|---|---|
-| `title` | headings at any level, document title, section headings | a multi-line heading is **one** region |
-| `text` | body paragraphs — the default | one region per paragraph block, not per line |
-| `list` | bulleted or numbered lists | the whole list is one region |
-| `table` | the entire table including its rules | do **not** box individual cells |
-| `figure` | images, charts, diagrams, maps, logos | includes the government emblem when decorative |
-| `caption` | text captioning a figure or table | must be adjacent to what it captions |
-| `header` | running header at the top of the page | only if it repeats across pages |
-| `footer` | running footer, footnotes | |
-| `page_number` | the folio number alone | tight box, digits only |
-| `stamp_seal` | official stamps, round seals, embossed marks | **high priority — get these right** |
-| `signature` | handwritten signatures | the signature mark, not the printed name below it |
+## 9. Decisions log
 
-### Boxing rules
-
-1. **Tight but complete.** Include all ink of the region, exclude surrounding whitespace. A couple of
-   pixels of margin is fine; ten is not.
-2. **Do not overlap** unless the content genuinely overlaps (a seal stamped across text is the common
-   real case — box both).
-3. **Multi-line headings are one region.** So are multi-paragraph blocks that read as one unit.
-4. **Tables are one box.** Cell structure is explicitly out of scope for this project.
-5. **Skip decorative rules and borders.** They are not regions.
-6. **If a region is ambiguous, flag it** in the shared sheet rather than guessing silently. Ambiguous
-   cases resolved consistently are fine; resolved inconsistently they are noise in your metric.
-
-### Reading order
-
-Number regions in the order a human would read them. Body content first, in logical flow. **Page
-furniture (header, footer, page number) goes last**, matching what the pipeline produces.
-
-For multi-column pages: finish the entire left column before starting the right one.
-
----
-
-## 4. Text transcription — the slow part, and the one that matters
-
-Save as UTF-8 `.txt`, one file per page, same stem as the image.
-
-### Rules
-
-1. **Transcribe what is printed, including errors.** If the document misspells a word, so do you.
-   This is ground truth, not a correction pass.
-2. **Preserve reading order.** Region order in the text file must match your reading-order numbering.
-3. **Blank line between regions.** This matches `Document.full_text()`, which joins regions with
-   `\n\n` — so the comparison is apples to apples.
-4. **Normalise to Unicode NFC.** Most editors do this; verify with the checker below.
-5. **Do not transcribe:** stamps, seals, signatures, figures. They are not text-bearing regions in
-   this pipeline. Do transcribe printed text *inside* a seal only if it is the sole content of the
-   region — and note it in the sheet.
-6. **Tables:** transcribe cell contents row by row, tab-separated, one row per line.
-7. **Use `[REDACTED]`** where you anonymised content.
-8. **Devanagari digits stay Devanagari.** Do not silently convert १२३ to 123 — that is a real
-   recognition distinction we want measured.
-
-### Quality check before you commit a file
-
-```bash
-python - <<'PY'
-import unicodedata, pathlib
-for p in pathlib.Path("benchmark/gt_text").glob("*.txt"):
-    t = p.read_text(encoding="utf-8")
-    if t != unicodedata.normalize("NFC", t):
-        print("NOT NFC:", p.name)
-    if "�" in t:
-        print("REPLACEMENT CHAR (encoding broke):", p.name)
-    if not t.strip():
-        print("EMPTY:", p.name)
-PY
-```
-
----
-
-## 5. Review — every page, by a second person
-
-**This is not optional.** Ground truth with errors in it produces CER numbers that look completely
-real and are completely wrong, and you will not catch it downstream because there is nothing to
-catch it against.
-
-Reviewer checks:
-
-- [ ] Every visible region has a box, and no box is empty
-- [ ] Class labels match the table above
-- [ ] Reading order is what a human would actually do
-- [ ] Transcription matches the image, character for character
-- [ ] Region order in the text file matches the reading-order numbers
-- [ ] Anonymisation is complete
-- [ ] File is NFC, no replacement characters
-
-Record reviewer initials in the tracking sheet. If a page needs rework, send it back rather than
-fixing it yourself — that is how the original annotator learns the convention.
-
----
-
-## 6. Tracking sheet
-
-Shared sheet, updated daily, visible to everyone:
-
-| page_id | source URL | language | layout | annotator | annotated | reviewer | reviewed | notes |
-|---|---|---|---|---|---|---|---|---|
-| page_001 | gr.maharashtra… | mr | 2-col | Kalpesh | ✓ | Ayush | ✓ | seal overlaps text |
-
-Daily counts in standup. If the cumulative count falls behind the day number × 7, cut the target to
-35 pages **immediately** rather than compressing the review step. A smaller honest benchmark beats a
-larger sloppy one, and 35 well-reviewed pages will still support a defensible CER with a confidence
-interval.
-
----
-
-## 7. Final structure
-
-```
-benchmark/
-  images/       page_001.jpg  page_002.jpg  …
-  gt_text/      page_001.txt  page_002.txt  …
-  gt_layout/    page_001.json page_002.json …
-  metadata.csv  page_id,source_url,language,layout_type,quality,has_seal,annotator,reviewer
-```
-
-Then:
-
-```bash
-python eval/run_benchmark.py --benchmark benchmark --out results/ --ablations
-```
-
----
-
-## Team decisions
-
-Record every convention you settle during calibration here, so it survives the two weeks.
-
-- *(e.g. "A letterhead at the top of page 1 is `header` only if it repeats on later pages; otherwise `figure` + `title`.")*
-- *(e.g. "Bilingual documents: box the Marathi and English blocks as separate regions.")*
--
--
+(Add dated entries here when the team settles an unclear case.)

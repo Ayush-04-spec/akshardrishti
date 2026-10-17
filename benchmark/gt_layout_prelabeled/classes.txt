@@ -1,0 +1,11 @@
+title
+text
+list
+table
+figure
+caption
+header
+footer
+page_number
+stamp_seal
+signature
