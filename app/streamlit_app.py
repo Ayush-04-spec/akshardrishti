@@ -211,17 +211,20 @@ def main() -> None:
                 try:
                     from akshardrishti.export import document_to_docx
                     docx_bytes = document_to_docx(doc)
-                    st.download_button(
-                        "⬇️ Download .docx",
-                        docx_bytes,
-                        f"{stem}_akshardrishti.docx",
-                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        use_container_width=True,
-                        key="docx_dl",
-                    )
-                    st.success("Word document ready!")
+                    st.session_state["export_docx"] = docx_bytes
+                    st.session_state["export_stem"] = stem
                 except Exception as exc:
                     st.error(f"DOCX export failed: {exc}")
+
+        if "export_docx" in st.session_state and st.session_state.get("export_stem") == stem:
+            st.download_button(
+                "⬇️ Download .docx",
+                st.session_state["export_docx"],
+                f"{stem}_akshardrishti.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                use_container_width=True,
+                key="docx_dl",
+            )
 
     with e2:
         if st.button("📕 Export as PDF", use_container_width=True):
@@ -229,68 +232,24 @@ def main() -> None:
                 try:
                     from akshardrishti.export import document_to_pdf
                     pdf_bytes = document_to_pdf(doc)
-                    st.download_button(
-                        "⬇️ Download .pdf",
-                        pdf_bytes,
-                        f"{stem}_akshardrishti.pdf",
-                        "application/pdf",
-                        use_container_width=True,
-                        key="pdf_dl",
-                    )
-                    st.success("PDF ready!")
+                    st.session_state["export_pdf"] = pdf_bytes
+                    st.session_state["export_stem"] = stem
                 except Exception as exc:
                     st.error(f"PDF export failed: {exc}")
 
+        if "export_pdf" in st.session_state and st.session_state.get("export_stem") == stem:
+            st.download_button(
+                "⬇️ Download .pdf",
+                st.session_state["export_pdf"],
+                f"{stem}_akshardrishti.pdf",
+                "application/pdf",
+                use_container_width=True,
+                key="pdf_dl",
+            )
+
     # ─────────────── File Converter ───────────────────────────────────
     st.divider()
-    st.markdown("### 🔄 File Converter")
-    st.caption("Convert between PDF and Word formats — independent of the OCR pipeline")
-
-    conv_type = st.radio(
-        "Conversion type",
-        ["PDF → Word (.docx)", "Word (.docx) → PDF"],
-        horizontal=True,
-    )
-
-    if conv_type == "PDF → Word (.docx)":
-        conv_file = st.file_uploader("Upload a PDF file", type=["pdf"], key="conv_pdf")
-        if conv_file and st.button("Convert PDF → Word", use_container_width=True):
-            with st.spinner("Converting..."):
-                try:
-                    from akshardrishti.export import pdf_to_docx_bytes
-                    result = pdf_to_docx_bytes(conv_file.read())
-                    conv_stem = Path(conv_file.name).stem
-                    st.download_button(
-                        f"⬇️ Download {conv_stem}.docx",
-                        result,
-                        f"{conv_stem}.docx",
-                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        use_container_width=True,
-                    )
-                    st.success("Conversion complete!")
-                except ImportError:
-                    st.error("PyMuPDF required for PDF→DOCX. Run: pip install pymupdf")
-                except Exception as exc:
-                    st.error(f"Conversion failed: {exc}")
-
-    else:
-        conv_file = st.file_uploader("Upload a Word (.docx) file", type=["docx"], key="conv_docx")
-        if conv_file and st.button("Convert Word → PDF", use_container_width=True):
-            with st.spinner("Converting..."):
-                try:
-                    from akshardrishti.export import docx_to_pdf_bytes
-                    result = docx_to_pdf_bytes(conv_file.read())
-                    conv_stem = Path(conv_file.name).stem
-                    st.download_button(
-                        f"⬇️ Download {conv_stem}.pdf",
-                        result,
-                        f"{conv_stem}.pdf",
-                        "application/pdf",
-                        use_container_width=True,
-                    )
-                    st.success("Conversion complete!")
-                except Exception as exc:
-                    st.error(f"Conversion failed: {exc}")
+    st.info("🔄 Need to convert PDF ↔ Word without OCR? Use the **File Converter** page in the sidebar.")
 
     with st.expander("Timings"):
         st.json(doc.timings_s)
