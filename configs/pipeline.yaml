@@ -117,6 +117,8 @@ postprocess:
   strip_control_chars: true
   collapse_whitespace: true
   table_reconstruction: true
+  table_method: tatr               # projection | tatr
+  tatr_threshold: 0.5              # TATR detection confidence cutoff
   min_confidence: 0.0              # keep everything; filter at analysis time
 
 # -------------------------------------------------------------------- output

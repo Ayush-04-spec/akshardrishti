@@ -106,15 +106,39 @@ class AksharDrishtiPipeline:
         if table_img.size == 0:
             return
 
+        table_method = self.cfg.get("postprocess.table_method", "projection")
         tbl_cfg = self.cfg.get("postprocess.table", {}) or {}
-        cell_triples = segment_table_cells(
-            table_img,
-            min_row_height=int(tbl_cfg.get("min_row_height", 8)),
-            min_col_width=int(tbl_cfg.get("min_col_width", 8)),
-            smoothing_rows=int(tbl_cfg.get("smoothing_rows", 3)),
-            smoothing_cols=int(tbl_cfg.get("smoothing_cols", 3)),
-            threshold_ratio=float(tbl_cfg.get("threshold_ratio", 0.05)),
-        )
+
+        if table_method == "tatr":
+            try:
+                from .layout.tatr import segment_table_cells_tatr
+                device = self.device if self.device != "auto" else (
+                    "cuda" if __import__("torch").cuda.is_available() else "cpu"
+                )
+                threshold = float(self.cfg.get("postprocess.tatr_threshold", 0.5))
+                cell_triples = segment_table_cells_tatr(
+                    table_img, device=device, threshold=threshold
+                )
+                log.debug("TATR returned %d cells for region %d", len(cell_triples), region.region_id)
+            except Exception as exc:
+                log.warning("TATR failed (%s) — falling back to projection", exc)
+                cell_triples = segment_table_cells(
+                    table_img,
+                    min_row_height=int(tbl_cfg.get("min_row_height", 8)),
+                    min_col_width=int(tbl_cfg.get("min_col_width", 8)),
+                    smoothing_rows=int(tbl_cfg.get("smoothing_rows", 3)),
+                    smoothing_cols=int(tbl_cfg.get("smoothing_cols", 3)),
+                    threshold_ratio=float(tbl_cfg.get("threshold_ratio", 0.05)),
+                )
+        else:
+            cell_triples = segment_table_cells(
+                table_img,
+                min_row_height=int(tbl_cfg.get("min_row_height", 8)),
+                min_col_width=int(tbl_cfg.get("min_col_width", 8)),
+                smoothing_rows=int(tbl_cfg.get("smoothing_rows", 3)),
+                smoothing_cols=int(tbl_cfg.get("smoothing_cols", 3)),
+                threshold_ratio=float(tbl_cfg.get("threshold_ratio", 0.05)),
+            )
 
         scripts: list[str] = []
         for row_idx, col_idx, cell_box in cell_triples:
