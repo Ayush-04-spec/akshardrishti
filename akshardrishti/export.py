@@ -59,11 +59,28 @@ def document_to_docx(doc: "Document") -> bytes:
                         d.add_paragraph(line.text.strip(), style="List Bullet")
 
             elif rtype == RegionType.TABLE:
-                # Best-effort: dump table text as preformatted
-                para = d.add_paragraph()
-                run = para.add_run(region.text.strip())
-                run.font.name = "Courier New"
-                run.font.size = Pt(9)
+                if region.cells:
+                    # Build a proper Word table from extracted cells
+                    rows: dict[int, list] = {}
+                    for c in region.cells:
+                        rows.setdefault(c.row, []).append(c)
+                    sorted_row_keys = sorted(rows.keys())
+                    max_cols = max(len(rows[i]) for i in sorted_row_keys) if sorted_row_keys else 1
+
+                    tbl = d.add_table(rows=len(sorted_row_keys), cols=max_cols)
+                    tbl.style = "Table Grid"
+                    for r_i, row_key in enumerate(sorted_row_keys):
+                        row_cells = sorted(rows[row_key], key=lambda c: c.col)
+                        for c_i, cell in enumerate(row_cells):
+                            if c_i < max_cols:
+                                tbl.cell(r_i, c_i).text = cell.text.strip()
+                    d.add_paragraph("")  # spacing after table
+                else:
+                    # Fallback: preformatted text
+                    para = d.add_paragraph()
+                    run = para.add_run(region.text.strip())
+                    run.font.name = "Courier New"
+                    run.font.size = Pt(9)
 
             elif rtype == RegionType.CAPTION:
                 para = d.add_paragraph(region.text.strip())
@@ -102,7 +119,7 @@ def document_to_pdf(doc: "Document") -> bytes:
     from reportlab.lib.units import mm
     from reportlab.lib import colors
     from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer,
-                                    PageBreak, HRFlowable)
+                                    PageBreak, HRFlowable, Table, TableStyle)
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
 
@@ -195,8 +212,40 @@ def document_to_pdf(doc: "Document") -> bytes:
                 for line in region.lines:
                     if line.text.strip():
                         story.append(safe_para(f"• {line.text.strip()}", style_normal))
-            else:
-                story.append(safe_para(text, style_normal))
+            elif rtype == RegionType.TABLE:
+                if region.cells:
+                    # Build a ReportLab Table from extracted cells
+                    rows_dict: dict[int, list] = {}
+                    for c in region.cells:
+                        rows_dict.setdefault(c.row, []).append(c)
+                    sorted_row_keys = sorted(rows_dict.keys())
+                    max_cols = max(len(rows_dict[i]) for i in sorted_row_keys) if sorted_row_keys else 1
+                    table_data = []
+                    for row_key in sorted_row_keys:
+                        row_cells = sorted(rows_dict[row_key], key=lambda c: c.col)
+                        row_texts = [c.text.strip() for c in row_cells]
+                        # Pad to max_cols
+                        while len(row_texts) < max_cols:
+                            row_texts.append("")
+                        table_data.append(row_texts)
+                    if table_data:
+                        rl_table = Table(table_data, repeatRows=1)
+                        rl_table.setStyle(TableStyle([
+                            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e3e8f0")),
+                            ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#1a237e")),
+                            ("FONTNAME", (0, 0), (-1, 0), font_name),
+                            ("FONTNAME", (0, 1), (-1, -1), font_name),
+                            ("FONTSIZE", (0, 0), (-1, -1), 9),
+                            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                            ("ROWBACKGROUNDS", (0, 1), (-1, -1),
+                             [colors.white, colors.HexColor("#f5f5f5")]),
+                            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                        ]))
+                        story.append(rl_table)
+                else:
+                    story.append(safe_para(region.text.strip(), style_normal))
 
             story.append(Spacer(1, 2*mm))
 

@@ -129,6 +129,116 @@ def segment_lines(
     raise ValueError(f"unknown line segmentation method: {method!r}")
 
 
+def _projection_gaps(profile: np.ndarray, min_gap: int, threshold: float) -> list[tuple[int, int]]:
+    """Return (start, end) run indices where profile > threshold.
+
+    Used for both horizontal (row) and vertical (column) splitting.
+    """
+    runs: list[tuple[int, int]] = []
+    start: int | None = None
+    for i, v in enumerate(profile):
+        if v > threshold and start is None:
+            start = i
+        elif v <= threshold and start is not None:
+            if i - start >= min_gap:
+                runs.append((start, i))
+            start = None
+    if start is not None and len(profile) - start >= min_gap:
+        runs.append((start, len(profile)))
+    return runs
+
+
+def segment_table_cells(
+    table_img: np.ndarray,
+    min_row_height: int = 8,
+    min_col_width: int = 8,
+    smoothing_rows: int = 3,
+    smoothing_cols: int = 3,
+    threshold_ratio: float = 0.05,
+    pad: int = 1,
+) -> list[tuple[int, int, BBox]]:
+    """Split a TABLE region crop into (row_idx, col_idx, BBox) cells.
+
+    Algorithm
+    ---------
+    1. Binarise the crop (ink = dark pixels).
+    2. Horizontal projection profile → gap detection → row bands.
+    3. For each row band, vertical projection profile → gap detection → columns.
+    4. The cross product (row_band × col_segment) gives cell bboxes in
+       coordinates *relative to the table_img crop*. The caller translates
+       them to page coordinates.
+
+    If the image is too small or blank, returns a single (0, 0, full_bbox)
+    cell so OCR still runs on the whole region.
+    """
+    if table_img is None or table_img.size == 0:
+        return []
+
+    gray = cv2.cvtColor(table_img, cv2.COLOR_BGR2GRAY) if table_img.ndim == 3 else table_img
+    h, w = gray.shape[:2]
+
+    if h < min_row_height or w < min_col_width:
+        return [(0, 0, BBox(x1=0.0, y1=0.0, x2=float(w), y2=float(h)))]
+
+    binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
+
+    # ── Step 1: find row bands via horizontal projection ──────────────────────
+    h_profile = _smooth((binary > 0).sum(axis=1).astype(np.float64), smoothing_rows)
+    peak_h = h_profile.max()
+    if peak_h <= 0:
+        # Blank region — one cell covering everything
+        return [(0, 0, BBox(x1=0.0, y1=0.0, x2=float(w), y2=float(h)))]
+
+    thresh_h = peak_h * threshold_ratio
+    row_runs = _projection_gaps(h_profile, min_gap=min_row_height, threshold=thresh_h)
+
+    if not row_runs:
+        row_runs = [(0, h)]
+
+    # ── Step 2: for each row band find column segments ────────────────────────
+    cells: list[tuple[int, int, BBox]] = []
+    for row_idx, (ry1, ry2) in enumerate(row_runs):
+        ry1_pad = max(0, ry1 - pad)
+        ry2_pad = min(h, ry2 + pad)
+        row_strip = binary[ry1:ry2, :]
+
+        v_profile = _smooth((row_strip > 0).sum(axis=0).astype(np.float64), smoothing_cols)
+        peak_v = v_profile.max()
+
+        if peak_v <= 0:
+            # Empty row — one spanning cell
+            cells.append((
+                row_idx, 0,
+                BBox(x1=0.0, y1=float(ry1_pad), x2=float(w), y2=float(ry2_pad))
+            ))
+            continue
+
+        thresh_v = peak_v * threshold_ratio
+        col_runs = _projection_gaps(v_profile, min_gap=min_col_width, threshold=thresh_v)
+
+        if not col_runs:
+            col_runs = [(0, w)]
+
+        for col_idx, (cx1, cx2) in enumerate(col_runs):
+            cells.append((
+                row_idx,
+                col_idx,
+                BBox(
+                    x1=float(max(0, cx1 - pad)),
+                    y1=float(ry1_pad),
+                    x2=float(min(w, cx2 + pad)),
+                    y2=float(ry2_pad),
+                )
+            ))
+
+    if not cells:
+        return [(0, 0, BBox(x1=0.0, y1=0.0, x2=float(w), y2=float(h)))]
+
+    log.debug("table segmentation: %d rows, %d cells total in %dx%d region",
+              len(row_runs), len(cells), w, h)
+    return cells
+
+
 def crop(image: np.ndarray, box: BBox) -> np.ndarray:
     """Crop a page/region image by a BBox, clipped to bounds."""
     h, w = image.shape[:2]

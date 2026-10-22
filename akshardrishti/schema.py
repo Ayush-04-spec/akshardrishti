@@ -131,6 +131,16 @@ class TextLine(BaseModel):
     backend: str | None = Field(default=None, description="Which recognizer produced this")
 
 
+class TableCell(BaseModel):
+    """One cell extracted from a TABLE region."""
+
+    row: int
+    col: int
+    bbox: BBox                          # page-absolute coordinates
+    text: str = ""
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
 class Region(BaseModel):
     """One detected layout region, optionally with recognised text."""
 
@@ -144,6 +154,7 @@ class Region(BaseModel):
     script_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
 
     lines: list[TextLine] = Field(default_factory=list)
+    cells: list[TableCell] = Field(default_factory=list)   # filled for TABLE regions
     text: str = ""
     recognition_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     backend: str | None = None
@@ -154,9 +165,24 @@ class Region(BaseModel):
         return v.strip()
 
     def compose_text(self, joiner: str = "\n") -> str:
-        """Rebuild region text from its lines and cache it on ``text``."""
-        self.text = joiner.join(ln.text for ln in self.lines if ln.text.strip()).strip()
-        confs = [ln.confidence for ln in self.lines if ln.confidence is not None]
+        """Rebuild region text from its lines (or cells for tables) and cache it."""
+        if self.cells:
+            # Build a readable table: group cells by row, join columns with " | "
+            rows: dict[int, list[TableCell]] = {}
+            for c in self.cells:
+                rows.setdefault(c.row, []).append(c)
+            row_texts = []
+            for row_idx in sorted(rows.keys()):
+                cells_in_row = sorted(rows[row_idx], key=lambda c: c.col)
+                row_texts.append(" | ".join(c.text for c in cells_in_row))
+            self.text = "\n".join(row_texts).strip()
+        else:
+            self.text = joiner.join(ln.text for ln in self.lines if ln.text.strip()).strip()
+        confs: list[float] = []
+        if self.cells:
+            confs = [c.confidence for c in self.cells if c.confidence is not None]
+        else:
+            confs = [ln.confidence for ln in self.lines if ln.confidence is not None]
         self.recognition_confidence = (sum(confs) / len(confs)) if confs else None
         return self.text
 
@@ -196,7 +222,31 @@ class Page(BaseModel):
             elif r.type is RegionType.LIST:
                 out.extend(f"- {ln.text}" for ln in r.lines if ln.text.strip())
             elif r.type is RegionType.TABLE:
-                out.append(f"```\n{r.text}\n```")
+                if r.cells:
+                    # Build a proper markdown table from extracted cells
+                    rows: dict[int, list] = {}
+                    for c in r.cells:
+                        rows.setdefault(c.row, []).append(c)
+                    sorted_rows = [sorted(rows[i], key=lambda c: c.col)
+                                   for i in sorted(rows.keys())]
+                    if sorted_rows:
+                        # Determine max columns
+                        max_cols = max(len(row) for row in sorted_rows)
+                        md_rows: list[str] = []
+                        for i, row in enumerate(sorted_rows):
+                            # Pad missing columns with empty string
+                            cells_text = [c.text.replace("|", "\\|") for c in row]
+                            while len(cells_text) < max_cols:
+                                cells_text.append("")
+                            md_rows.append("| " + " | ".join(cells_text) + " |")
+                            if i == 0:
+                                # Header separator after first row
+                                md_rows.append("|" + "|".join(" --- " for _ in range(max_cols)) + "|")
+                        out.append("\n".join(md_rows))
+                    else:
+                        out.append(f"```\n{r.text}\n```")
+                else:
+                    out.append(f"```\n{r.text}\n```")
             elif r.type is RegionType.CAPTION:
                 out.append(f"*{r.text}*")
             else:

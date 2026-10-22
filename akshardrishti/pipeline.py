@@ -20,12 +20,12 @@ import numpy as np
 
 from .config import Config
 from .layout.detector import LayoutDetector, merge_overlapping
-from .layout.lines import crop, offset_box, segment_lines
+from .layout.lines import crop, offset_box, segment_lines, segment_table_cells
 from .layout.reading_order import compute_reading_order
 from .postprocess.text_repair import clean_text
 from .preprocess.enhance import preprocess_page
 from .recognize.base import ScriptRouter, build_recognizer
-from .schema import BBox, Document, Page, PageMeta, Region, RegionType, TextLine
+from .schema import BBox, Document, Page, PageMeta, Region, RegionType, TableCell, TextLine
 from .script_id.classifier import ScriptIdentifier
 
 log = logging.getLogger(__name__)
@@ -100,9 +100,68 @@ class AksharDrishtiPipeline:
         return [img]
 
     # ------------------------------------------------------------- stages
+    def _recognize_table(self, page_img: np.ndarray, region: Region) -> None:
+        """Segment a TABLE region into cells, OCR each cell, populate region.cells."""
+        table_img = crop(page_img, region.bbox)
+        if table_img.size == 0:
+            return
+
+        tbl_cfg = self.cfg.get("postprocess.table", {}) or {}
+        cell_triples = segment_table_cells(
+            table_img,
+            min_row_height=int(tbl_cfg.get("min_row_height", 8)),
+            min_col_width=int(tbl_cfg.get("min_col_width", 8)),
+            smoothing_rows=int(tbl_cfg.get("smoothing_rows", 3)),
+            smoothing_cols=int(tbl_cfg.get("smoothing_cols", 3)),
+            threshold_ratio=float(tbl_cfg.get("threshold_ratio", 0.05)),
+        )
+
+        scripts: list[str] = []
+        for row_idx, col_idx, cell_box in cell_triples:
+            cell_img = crop(table_img, cell_box)
+            if cell_img.size == 0:
+                continue
+
+            if self.cfg.get("script_id.enabled", True):
+                script, script_conf = self.script_id.identify(cell_img)
+            else:
+                script, script_conf = "unknown", None
+
+            result = self.router.recognize(cell_img, script=script, script_confidence=script_conf)
+            text = clean_text(
+                result.text,
+                unicode_form=self.cfg.get("postprocess.unicode_normalize", "NFC"),
+                repair_shirorekha=self.cfg.get("postprocess.repair_shirorekha", True),
+                strip_control=self.cfg.get("postprocess.strip_control_chars", True),
+                collapse_ws=self.cfg.get("postprocess.collapse_whitespace", True),
+            )
+
+            # Convert cell bbox from table-relative to page-absolute coords
+            page_abs_bbox = offset_box(cell_box, region.bbox.x1, region.bbox.y1)
+            region.cells.append(TableCell(
+                row=row_idx,
+                col=col_idx,
+                bbox=page_abs_bbox,
+                text=text,
+                confidence=result.confidence,
+            ))
+            if text:
+                scripts.append(script)
+
+        region.compose_text()
+        if scripts:
+            uniq = set(scripts)
+            region.script = scripts[0] if len(uniq) == 1 else "mixed"
+
     def _recognize_region(self, page_img: np.ndarray, region: Region) -> None:
         """Segment a region into lines, identify script, recognise, fill in."""
         if not region.type.is_text_bearing:
+            return
+
+        # TABLE regions get cell-level extraction when enabled
+        if (region.type is RegionType.TABLE
+                and self.cfg.get("postprocess.table_reconstruction", False)):
+            self._recognize_table(page_img, region)
             return
 
         region_img = crop(page_img, region.bbox)
