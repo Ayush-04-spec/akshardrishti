@@ -94,46 +94,60 @@ def main() -> None:
         return
 
     suffix = Path(uploaded.name).suffix
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        tmp.write(uploaded.getvalue())
-        tmp_path = Path(tmp.name)
+    file_key = f"{uploaded.name}_{uploaded.size}"
 
-    if not st.button("Run AksharDrishti", type="primary"):
-        st.image(uploaded, caption=uploaded.name, use_container_width=True)
-        return
+    # ── Run pipeline (only when button clicked, cache result in session_state) ─
+    if st.button("Run AksharDrishti", type="primary"):
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(uploaded.getvalue())
+            tmp_path = Path(tmp.name)
+        try:
+            pipeline = get_pipeline(config_path, json.dumps(overrides))
+        except Exception as exc:
+            st.error(f"Could not build the pipeline: {exc}")
+            return
 
-    # ---------------------------------------------------------- process
-    try:
-        pipeline = get_pipeline(config_path, json.dumps(overrides))
-    except Exception as exc:  # noqa: BLE001
-        st.error(f"Could not build the pipeline: {exc}")
-        return
-
-    progress = st.progress(0.0, "Loading…")
-    started = time.perf_counter()
-    try:
-        progress.progress(0.15, "Loading document…")
-        images = pipeline.load_images(tmp_path)
-
-        progress.progress(0.35, f"Processing {len(images)} page(s)…")
-        doc = pipeline.process(tmp_path)
-        progress.progress(1.0, "Done")
-    except FileNotFoundError as exc:
+        progress = st.progress(0.0, "Loading…")
+        started = time.perf_counter()
+        try:
+            progress.progress(0.15, "Loading document…")
+            images = pipeline.load_images(tmp_path)
+            progress.progress(0.35, f"Processing {len(images)} page(s)…")
+            doc = pipeline.process(tmp_path)
+            progress.progress(1.0, "Done")
+            elapsed = time.perf_counter() - started
+            # Cache everything in session state
+            st.session_state["result_doc"]     = doc
+            st.session_state["result_images"]  = images
+            st.session_state["result_elapsed"] = elapsed
+            st.session_state["result_key"]     = file_key
+        except FileNotFoundError as exc:
+            progress.empty()
+            st.error(f"Missing model weights: {exc}")
+            return
+        except Exception as exc:
+            progress.empty()
+            st.error(f"Processing failed: {exc}")
+            st.exception(exc)
+            return
+        finally:
+            tmp_path.unlink(missing_ok=True)
         progress.empty()
-        st.error(f"Missing model weights: {exc}")
-        st.info("Train the models first, or switch to a pretrained backend (paddle_vl / tesseract) in the sidebar.")
-        return
-    except Exception as exc:  # noqa: BLE001
-        progress.empty()
-        st.error(f"Processing failed: {exc}")
-        st.exception(exc)
-        return
-    finally:
-        tmp_path.unlink(missing_ok=True)
+    else:
+        # No button clicked yet — show preview
+        if st.session_state.get("result_key") != file_key:
+            st.image(uploaded, caption=uploaded.name, use_container_width=True)
+            return
 
-    elapsed = time.perf_counter() - started
+    # ── Show results (from session_state so sliders/buttons don't rerun) ──────
+    if st.session_state.get("result_key") != file_key:
+        return
 
-    # ----------------------------------------------------------- metrics
+    doc     = st.session_state["result_doc"]
+    images  = st.session_state["result_images"]
+    elapsed = st.session_state["result_elapsed"]
+
+    # ── Metrics ────────────────────────────────────────────────────────────────
     total_regions = sum(len(p.regions) for p in doc.pages)
     total_chars = len(doc.full_text())
     c1, c2, c3, c4 = st.columns(4)
@@ -147,13 +161,28 @@ def main() -> None:
         if len(doc.pages) > 1:
             st.subheader(f"Page {page_idx + 1}")
 
-        pre = preprocess_page(images[page_idx], pipeline.cfg.get("preprocess", {}))
+        pre = preprocess_page(images[page_idx], get_pipeline(config_path, json.dumps(overrides)).cfg.get("preprocess", {}))
         overlay = visualize_regions(pre.image, page)
 
         left, right = st.columns([1, 1])
         with left:
             st.markdown("**Detected layout**")
-            st.image(cv2.cvtColor(overlay, cv2.COLOR_BGR2RGB), use_container_width=True)
+            # Resize to fixed height so entire page fits without scrolling
+            overlay_rgb = cv2.cvtColor(overlay, cv2.COLOR_BGR2RGB)
+            oh, ow = overlay_rgb.shape[:2]
+            target_h = st.select_slider(
+                "Image height (px)", 
+                options=[400, 500, 600, 700, 800, 900, 1000, "Full"],
+                value=700,
+                key=f"zoom_{page_idx}"
+            )
+            if target_h != "Full":
+                scale = int(target_h) / max(oh, 1)
+                if scale < 1.0:
+                    new_w = max(1, int(ow * scale))
+                    overlay_rgb = cv2.resize(overlay_rgb, (new_w, int(target_h)),
+                                             interpolation=cv2.INTER_AREA)
+            st.image(overlay_rgb, use_container_width=True)
             st.caption("Numbers show reading order")
 
         with right:
