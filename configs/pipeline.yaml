@@ -118,7 +118,8 @@ postprocess:
   collapse_whitespace: true
   table_reconstruction: true
   table_method: tatr               # projection | tatr
-  tatr_threshold: 0.5              # TATR detection confidence cutoff
+  tatr_threshold: 0.3              # lower = catches more rows; 0.3 works well for govt docs
+  tatr_min_height: 400             # upscale table crop to this height before TATR inference
   min_confidence: 0.0              # keep everything; filter at analysis time
 
 # -------------------------------------------------------------------- output

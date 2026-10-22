@@ -115,9 +115,11 @@ class AksharDrishtiPipeline:
                 device = self.device if self.device != "auto" else (
                     "cuda" if __import__("torch").cuda.is_available() else "cpu"
                 )
-                threshold = float(self.cfg.get("postprocess.tatr_threshold", 0.5))
+                threshold = float(self.cfg.get("postprocess.tatr_threshold", 0.3))
+                min_h = int(self.cfg.get("postprocess.tatr_min_height", 400))
                 cell_triples = segment_table_cells_tatr(
-                    table_img, device=device, threshold=threshold
+                    table_img, device=device, threshold=threshold,
+                    min_tatr_height=min_h,
                 )
                 log.debug("TATR returned %d cells for region %d", len(cell_triples), region.region_id)
             except Exception as exc:

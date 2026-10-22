@@ -211,78 +211,133 @@ def _extract_row_col_boxes(
 
 # ─────────────────────────────────────── public API ──────────────────────────
 
+def _upscale_for_tatr(img: np.ndarray, min_height: int = 400) -> tuple[np.ndarray, float]:
+    """Upscale a table crop so TATR can resolve individual rows.
+
+    TATR was trained on ~300-600px tall table images.  Government document
+    tables cropped at 150-200px collapse multiple rows into one detection.
+    We scale up to at least min_height pixels, preserving aspect ratio.
+    Returns (upscaled_img, scale_factor).  Scale factor < 1 means no scaling.
+    """
+    h, w = img.shape[:2]
+    if h >= min_height:
+        return img, 1.0
+    scale = min_height / h
+    new_h = int(round(h * scale))
+    new_w = int(round(w * scale))
+    import cv2 as _cv2
+    upscaled = _cv2.resize(img, (new_w, new_h), interpolation=_cv2.INTER_CUBIC)
+    return upscaled, scale
+
+
 def segment_table_cells_tatr(
     table_img: np.ndarray,
     device: str = "cpu",
-    threshold: float = 0.5,
+    threshold: float = 0.3,
+    min_tatr_height: int = 400,
 ) -> list[tuple[int, int, BBox]]:
-    """Segment a TABLE region crop into (row_idx, col_idx, BBox) cells using
-    Microsoft's Table Transformer structure-recognition model.
+    """Segment a TABLE region crop into (row_idx, col_idx, BBox) cells.
+
+    Strategy (hybrid)
+    -----------------
+    TATR is excellent at finding column boundaries in document tables but
+    struggles with row separation in short Indic-script crops where multiple
+    rows have similar ink density.
+
+    We therefore use:
+      • TATR  → column boundaries  (high confidence on any language)
+      • Horizontal projection profiling → row boundaries  (language-agnostic,
+        works on any height, resolves individual rows reliably)
+
+    This gives us the 4 correct columns from TATR and the correct row count
+    from projection, then cross-products them into a full cell grid.
 
     Parameters
     ----------
-    table_img : np.ndarray
-        BGR or grayscale crop of the table region (region-relative coords).
-    device : str
-        'cuda' or 'cpu'.
-    threshold : float
-        Confidence threshold for TATR detections (default 0.5).
+    table_img      : BGR or grayscale table crop in region-relative coords.
+    device         : 'cuda' or 'cpu'.
+    threshold      : TATR confidence cutoff for column detection.
+    min_tatr_height: Upscale crop to at least this height before TATR.
 
     Returns
     -------
-    List of (row_idx, col_idx, BBox) where BBox is in table_img pixel coords.
-    Falls back to a single full-image cell if TATR finds nothing useful.
+    List of (row_idx, col_idx, BBox) in original table_img pixel coords.
+    Falls back to projection-only if TATR finds no columns.
     """
     if table_img is None or table_img.size == 0:
         return []
 
     import torch
     from PIL import Image as PILImage
+    from .lines import segment_lines_projection
 
-    h, w = table_img.shape[:2]
+    orig_h, orig_w = table_img.shape[:2]
 
-    # Convert to PIL RGB (TATR was trained on RGB)
-    if table_img.ndim == 2:
-        pil_img = PILImage.fromarray(table_img).convert("RGB")
+    # ── Step A: get column boundaries from TATR ───────────────────────────────
+    scaled_img, scale = _upscale_for_tatr(table_img, min_height=min_tatr_height)
+    sh, sw = scaled_img.shape[:2]
+
+    if scaled_img.ndim == 2:
+        pil_img = PILImage.fromarray(scaled_img).convert("RGB")
     else:
-        import cv2
-        pil_img = PILImage.fromarray(cv2.cvtColor(table_img, cv2.COLOR_BGR2RGB))
+        import cv2 as _cv2
+        pil_img = PILImage.fromarray(_cv2.cvtColor(scaled_img, _cv2.COLOR_BGR2RGB))
 
     model, processor = _load_structure_model(device)
-
-    # Preprocess
     inputs = processor(images=pil_img, return_tensors="pt")
     inputs = {k: v.to(device) for k, v in inputs.items()}
 
-    # Inference
     with torch.no_grad():
         outputs = model(**inputs)
 
-    # Post-process: rescale boxes back to original image pixel coords
-    target_sizes = torch.tensor([[h, w]], device=device)
+    target_sizes = torch.tensor([[sh, sw]], device=device)
     results = processor.post_process_object_detection(
-        outputs,
-        threshold=threshold,
-        target_sizes=target_sizes,
+        outputs, threshold=threshold, target_sizes=target_sizes,
     )[0]
 
-    row_boxes, col_boxes = _extract_row_col_boxes(results, img_w=w, img_h=h,
-                                                  threshold=threshold)
+    _, col_boxes_scaled = _extract_row_col_boxes(results, img_w=sw, img_h=sh,
+                                                 threshold=threshold)
 
-    log.debug("TATR found %d rows, %d columns in %dx%d table",
-              len(row_boxes), len(col_boxes), w, h)
+    log.debug("TATR found %d columns (scaled %dx%d)", len(col_boxes_scaled), sw, sh)
 
-    # Need at least 1 row and 1 column to build a grid
-    if not row_boxes or not col_boxes:
-        log.warning(
-            "TATR found %d rows / %d cols — falling back to single cell",
-            len(row_boxes), len(col_boxes),
-        )
-        return [(0, 0, BBox(x1=0.0, y1=0.0, x2=float(w), y2=float(h)))]
+    # Scale column boxes back to original coords
+    if scale != 1.0 and col_boxes_scaled:
+        col_boxes = [(x1/scale, y1/scale, x2/scale, y2/scale)
+                     for x1, y1, x2, y2 in col_boxes_scaled]
+    else:
+        col_boxes = col_boxes_scaled
 
-    cells = _boxes_to_grid(row_boxes, col_boxes, img_w=w, img_h=h)
+    # ── Step B: get row boundaries from horizontal projection ─────────────────
+    import cv2
+    gray = cv2.cvtColor(table_img, cv2.COLOR_BGR2GRAY) if table_img.ndim == 3 else table_img
+    row_line_boxes = segment_lines_projection(
+        gray,
+        min_line_height=8,           # fixed minimum; covers even tight government table rows
+        smoothing=3,
+        threshold_ratio=0.05,
+    )
+
+    # Convert row line boxes → (x1, y1, x2, y2) spanning full width
+    row_boxes = [
+        (0.0, float(lb.y1), float(orig_w), float(lb.y2))
+        for lb in row_line_boxes
+    ]
+
+    log.debug("Projection found %d rows in %dx%d table", len(row_boxes), orig_w, orig_h)
+
+    # ── Fallback: if either source failed, use projection for both ────────────
+    if not col_boxes:
+        log.warning("TATR found no columns — falling back to full projection")
+        from .lines import segment_table_cells as _proj_cells
+        return _proj_cells(table_img)
+
+    if not row_boxes:
+        row_boxes = [(0.0, 0.0, float(orig_w), float(orig_h))]
+
+    # ── Step C: cross row × column → cell grid ───────────────────────────────
+    cells = _boxes_to_grid(row_boxes, col_boxes, img_w=orig_w, img_h=orig_h)
 
     if not cells:
-        return [(0, 0, BBox(x1=0.0, y1=0.0, x2=float(w), y2=float(h)))]
+        return [(0, 0, BBox(x1=0.0, y1=0.0, x2=float(orig_w), y2=float(orig_h)))]
 
     return cells
