@@ -22,15 +22,20 @@ class TrOCRRecognizer(Recognizer):
     supported_scripts = ("latin",)
 
     def _load(self) -> None:
-        import torch
-        from transformers import TrOCRProcessor, VisionEncoderDecoderModel
+        try:
+            import torch
+            from transformers import TrOCRProcessor, VisionEncoderDecoderModel
 
-        model_id = self.config.get("model_id", "microsoft/trocr-base-printed")
-        self.processor = TrOCRProcessor.from_pretrained(model_id)
-        self.model = VisionEncoderDecoderModel.from_pretrained(model_id).to(self.device).eval()
-        self.max_new_tokens = int(self.config.get("max_new_tokens", 128))
-        self._torch = torch
-        log.info("TrOCR loaded: %s", model_id)
+            model_id = self.config.get("model_id", "microsoft/trocr-base-printed")
+            self.processor = TrOCRProcessor.from_pretrained(model_id)
+            self.model = VisionEncoderDecoderModel.from_pretrained(model_id).to(self.device).eval()
+            self.max_new_tokens = int(self.config.get("max_new_tokens", 128))
+            self._torch = torch
+            self._available = True
+            log.info("TrOCR loaded: %s", model_id)
+        except Exception as e:
+            log.warning("TrOCR unavailable (%s) — returning empty strings for Latin text.", e)
+            self._available = False
 
     @staticmethod
     def _to_rgb(image: np.ndarray) -> np.ndarray:
@@ -41,6 +46,8 @@ class TrOCRRecognizer(Recognizer):
         raise ValueError(f"unexpected image shape {image.shape}")
 
     def recognize(self, image: np.ndarray, script: str = "latin") -> RecognitionResult:
+        if not getattr(self, '_available', True):
+            return RecognitionResult(text="", confidence=0.0, backend=self.name)
         if image is None or image.size == 0:
             return RecognitionResult(text="", confidence=0.0)
 

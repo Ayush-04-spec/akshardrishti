@@ -82,6 +82,7 @@ class LayoutDetector:
     # ---------------------------------------------------------- inference
     def _to_regions(self, boxes: list[tuple[BBox, int, float]], width: int, height: int) -> list[Region]:
         regions: list[Region] = []
+        page_area = float(width * height)
         for i, (box, cls_idx, conf) in enumerate(boxes):
             name = self.class_names[cls_idx] if 0 <= cls_idx < len(self.class_names) else "text"
             try:
@@ -89,6 +90,38 @@ class LayoutDetector:
             except ValueError:
                 log.debug("detector emitted unknown class %r -> text", name)
                 rtype = RegionType.TEXT
+
+            # ── Heuristic reclassification for stamp_seal and signature ──────
+            # The model was trained with 0 stamp_seal and signature examples,
+            # so it labels them as 'figure'. Apply shape/size/position rules
+            # to recover the correct class for the demo.
+            if rtype == RegionType.FIGURE:
+                bw = box.x2 - box.x1
+                bh = box.y2 - box.y1
+                if bw <= 0 or bh <= 0:
+                    pass
+                else:
+                    aspect = bw / bh
+                    rel_area = (bw * bh) / page_area
+                    rel_cy   = (box.y1 + box.y2) / 2.0 / height  # 0=top, 1=bottom
+
+                    # stamp_seal: roughly square/circular, small, typically bottom half
+                    if (0.6 <= aspect <= 1.7
+                            and rel_area < 0.08
+                            and rel_cy > 0.35):
+                        rtype = RegionType.STAMP_SEAL
+                        log.debug("reclassified figure -> stamp_seal (aspect=%.2f area=%.3f)",
+                                  aspect, rel_area)
+
+                    # signature: wide & thin, small area, bottom half of page
+                    elif (aspect > 1.8
+                          and rel_area < 0.04
+                          and rel_cy > 0.35):
+                        rtype = RegionType.SIGNATURE
+                        log.debug("reclassified figure -> signature (aspect=%.2f area=%.3f)",
+                                  aspect, rel_area)
+            # ── end heuristic ─────────────────────────────────────────────────
+
             regions.append(
                 Region(
                     region_id=i,

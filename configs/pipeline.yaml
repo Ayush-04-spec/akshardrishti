@@ -80,13 +80,13 @@ script_id:
 recognize:
   # Backends are swappable; each implements akshardrishti.recognize.base.Recognizer
   deva_backend: crnn_mozhi         # crnn_mozhi | bhashini_api | paddle_vl | surya
-  latin_backend: trocr_printed     # trocr_printed | paddle_vl | tesseract
+  latin_backend: crnn_mozhi           # trocr_printed | paddle_vl | tesseract | crnn_mozhi (local demo)
 
   line_segmentation:
     enabled: true
     method: projection             # projection | craft
-    min_line_height: 12
-    smoothing: 5
+    min_line_height: 8
+    smoothing: 3
 
   backends:
     crnn_mozhi:
