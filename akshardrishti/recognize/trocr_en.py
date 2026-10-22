@@ -24,10 +24,13 @@ class TrOCRRecognizer(Recognizer):
     def _load(self) -> None:
         try:
             import torch
-            from transformers import TrOCRProcessor, VisionEncoderDecoderModel
+            from transformers import ViTImageProcessor, RobertaTokenizer, VisionEncoderDecoderModel
 
             model_id = self.config.get("model_id", "microsoft/trocr-base-printed")
-            self.processor = TrOCRProcessor.from_pretrained(model_id)
+            # transformers >=5 broke TrOCRProcessor; load image processor + tokenizer separately
+            self._image_processor = ViTImageProcessor.from_pretrained(model_id)
+            # TrOCR decoder is RoBERTa — load by explicit class to avoid sentencepiece lookup
+            self._tokenizer = RobertaTokenizer.from_pretrained("roberta-base")
             self.model = VisionEncoderDecoderModel.from_pretrained(model_id).to(self.device).eval()
             self.max_new_tokens = int(self.config.get("max_new_tokens", 128))
             self._torch = torch
@@ -40,9 +43,9 @@ class TrOCRRecognizer(Recognizer):
     @staticmethod
     def _to_rgb(image: np.ndarray) -> np.ndarray:
         if image.ndim == 2:
-            return np.stack([image] * 3, axis=-1)
+            return np.ascontiguousarray(np.stack([image] * 3, axis=-1))
         if image.ndim == 3 and image.shape[2] == 3:
-            return image[:, :, ::-1]  # BGR (OpenCV) -> RGB
+            return np.ascontiguousarray(image[:, :, ::-1])  # BGR → RGB, contiguous
         raise ValueError(f"unexpected image shape {image.shape}")
 
     def recognize(self, image: np.ndarray, script: str = "latin") -> RecognitionResult:
@@ -51,7 +54,9 @@ class TrOCRRecognizer(Recognizer):
         if image is None or image.size == 0:
             return RecognitionResult(text="", confidence=0.0)
 
-        pixel_values = self.processor(images=self._to_rgb(image), return_tensors="pt").pixel_values.to(self.device)
+        pixel_values = self._image_processor(
+            images=self._to_rgb(image), return_tensors="pt"
+        ).pixel_values.to(self.device)
 
         with self._torch.no_grad():
             generated = self.model.generate(
@@ -61,11 +66,8 @@ class TrOCRRecognizer(Recognizer):
                 return_dict_in_generate=True,
             )
 
-        text = self.processor.batch_decode(generated.sequences, skip_special_tokens=True)[0]
+        text = self._tokenizer.batch_decode(generated.sequences, skip_special_tokens=True)[0]
 
-        # Mean max-softmax across generated steps as a rough confidence. Honest
-        # caveat: generative confidence is poorly calibrated, so treat it as a
-        # ranking signal for the router, not as a probability.
         conf = None
         if getattr(generated, "scores", None):
             probs = [self._torch.softmax(s, dim=-1).max().item() for s in generated.scores]
@@ -79,14 +81,15 @@ class TrOCRRecognizer(Recognizer):
         if not valid:
             return out
 
-        pixel_values = self.processor(
+        pixel_values = self._image_processor(
             images=[self._to_rgb(im) for _, im in valid], return_tensors="pt"
         ).pixel_values.to(self.device)
 
         with self._torch.no_grad():
             ids = self.model.generate(pixel_values, max_new_tokens=self.max_new_tokens)
 
-        for (orig_idx, _), text in zip(valid, self.processor.batch_decode(ids, skip_special_tokens=True)):
+        texts = self._tokenizer.batch_decode(ids, skip_special_tokens=True)
+        for (orig_idx, _), text in zip(valid, texts):
             out[orig_idx] = RecognitionResult(text=text.strip(), confidence=None, backend=self.name)
         return out
 
