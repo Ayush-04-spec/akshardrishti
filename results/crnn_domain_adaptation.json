@@ -1,0 +1,43 @@
+{
+  "experiment": "CRNN domain adaptation to government documents",
+  "date": "2026-10-23",
+  "base_model": "crnn_mozhi_himr.pt",
+  "govdoc_crops": 2115,
+  "augmentation": "4x per crop (brightness, rotation+-2deg, blur, noise)",
+  "mozhi_sample": 2000,
+  "attempts": [
+    {
+      "method": "direct_finetune_v1",
+      "govdoc_crops": 132,
+      "mozhi_sample": 2000,
+      "epochs": 10,
+      "best_govdoc_cer": 0.9368,
+      "notes": "Too few govdoc crops, catastrophic forgetting"
+    },
+    {
+      "method": "direct_finetune_v2",
+      "govdoc_crops": 377,
+      "mozhi_sample": 2000,
+      "epochs": 20,
+      "best_govdoc_cer": 0.9148,
+      "notes": "Slight improvement but model peaked at epoch 2 then degraded"
+    },
+    {
+      "method": "curriculum_3phase",
+      "govdoc_crops": 2115,
+      "mozhi_sample": 2000,
+      "phases": [
+        {"name": "P1_mozhi_only",   "epochs": 5,  "lr": 1e-4, "best_cer": 0.9474},
+        {"name": "P2_50_50",        "epochs": 10, "lr": 5e-5, "best_cer": 0.9459},
+        {"name": "P3_80_govdoc",    "epochs": 10, "lr": 2e-5, "best_cer": 0.9588}
+      ],
+      "overall_best_cer": 0.9459,
+      "notes": "Phase 2 loss jumped from 0.023 to 4.0 when govdoc introduced — domain gap too large for available data"
+    }
+  ],
+  "conclusion": "All three approaches failed to improve beyond base model CER of ~0.91 on govdoc crops. Root cause: 2115 govdoc crops insufficient to bridge domain gap from 160K Mozhi novel crops. Minimum viable dataset estimated at 50K+ government document line crops.",
+  "base_mozhi_cer": 0.004859,
+  "base_govdoc_cer": 0.9158,
+  "tesseract_fullpage_cer": 0.5734,
+  "recommendation": "Retrain from scratch on mixed corpus (Mozhi + large government document OCR dataset)"
+}

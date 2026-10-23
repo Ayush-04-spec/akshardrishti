@@ -54,7 +54,9 @@ class CRNNRecognizer(Recognizer):
                     "and point the config at the slim file."
                 ) from _e
             raise
-        self.model.load_state_dict(state["model"] if "model" in state else state)
+        self.model.load_state_dict(
+            state.get("model") or state.get("model_state_dict") or state
+        )
         self.model.to(self.device).eval()
         self._torch = torch
 
