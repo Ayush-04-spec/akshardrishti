@@ -1,0 +1,103 @@
+{
+  "git_commit": "ede079239a3cc89dd58469380ddede1094e8bbce",
+  "date": "2026-10-23",
+  "weights_sha": "C7B4F755A132E10F66656F575C9159493F660641B096B2774A8C33CF9DB999F8",
+  "n_pages": 24,
+  "device": "0",
+  "overall": {
+    "mAP50": 0.2752,
+    "mAP50-95": 0.1917,
+    "precision": 0.5185,
+    "recall": 0.8462
+  },
+  "per_class": {
+    "title": {
+      "n_gt": 49,
+      "n_pred": 56,
+      "precision_at_50": 0.5893,
+      "recall_at_50": 0.6735,
+      "AP50": 0.3969,
+      "AP50-95": 0.2339
+    },
+    "text": {
+      "n_gt": 39,
+      "n_pred": 110,
+      "precision_at_50": 0.2455,
+      "recall_at_50": 0.6923,
+      "AP50": 0.1699,
+      "AP50-95": 0.105
+    },
+    "list": {
+      "n_gt": 31,
+      "n_pred": 38,
+      "precision_at_50": 0.6842,
+      "recall_at_50": 0.8387,
+      "AP50": 0.5739,
+      "AP50-95": 0.3948
+    },
+    "table": {
+      "n_gt": 20,
+      "n_pred": 22,
+      "precision_at_50": 0.9091,
+      "recall_at_50": 1.0,
+      "AP50": 0.9091,
+      "AP50-95": 0.8475
+    },
+    "figure": {
+      "n_gt": 7,
+      "n_pred": 17,
+      "precision_at_50": 0.4118,
+      "recall_at_50": 1.0,
+      "AP50": 0.4118,
+      "AP50-95": 0.3261
+    },
+    "caption": {
+      "n_gt": 1,
+      "n_pred": 22,
+      "precision_at_50": 0.0,
+      "recall_at_50": 0.0,
+      "AP50": 0.0,
+      "AP50-95": 0.0
+    },
+    "header": {
+      "n_gt": 16,
+      "n_pred": 13,
+      "precision_at_50": 0.6154,
+      "recall_at_50": 0.5,
+      "AP50": 0.3077,
+      "AP50-95": 0.1202
+    },
+    "footer": {
+      "n_gt": 3,
+      "n_pred": 8,
+      "precision_at_50": 0.25,
+      "recall_at_50": 0.6667,
+      "AP50": 0.1667,
+      "AP50-95": 0.0542
+    },
+    "page_number": {
+      "n_gt": 1,
+      "n_pred": 11,
+      "precision_at_50": 0.0909,
+      "recall_at_50": 1.0,
+      "AP50": 0.0909,
+      "AP50-95": 0.0273
+    },
+    "stamp_seal": {
+      "n_gt": 4,
+      "n_pred": 0,
+      "precision_at_50": 0.0,
+      "recall_at_50": 0.0,
+      "AP50": 0.0,
+      "AP50-95": 0.0
+    },
+    "signature": {
+      "n_gt": 11,
+      "n_pred": 0,
+      "precision_at_50": 0.0,
+      "recall_at_50": 0.0,
+      "AP50": 0.0,
+      "AP50-95": 0.0
+    }
+  }
+}

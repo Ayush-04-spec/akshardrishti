@@ -34,7 +34,7 @@ IMAGES_DIR  = BENCH_DIR / "images"
 GT_DIR      = BENCH_DIR / "gt_layout"
 OUT_DIR     = ROOT / "results" / "layout_benchmark"
 WEIGHTS     = ROOT / "weights" / "layout" / "yolo11l_indicdlp.pt"
-EXPECTED_SHA = "5A927BAF51EE9EF3DDEA1DFFDAE954C73869A17B0614836F8856AA77B6AD4AED"
+EXPECTED_SHA = "C7B4F755A132E10F66656F575C9159493F660641B096B2774A8C33CF9DB999F8"
 
 CLASS_NAMES = ["title","text","list","table","figure","caption",
                "header","footer","page_number","stamp_seal","signature"]
