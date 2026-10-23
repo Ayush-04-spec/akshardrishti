@@ -70,7 +70,7 @@ reading_order:
 # ----------------------------------------------------------- script identification
 script_id:
   enabled: true
-  method: cnn                      # cnn | unicode_vote | always_deva | always_latin
+  method: unicode_vote             # cnn | unicode_vote | always_deva | always_latin
   weights: ./weights/script_id/scriptid_cnn.pt
   confidence_floor: 0.6            # below this, run BOTH branches and keep the
                                    # higher-confidence transcription
@@ -80,7 +80,7 @@ script_id:
 recognize:
   # Backends are swappable; each implements akshardrishti.recognize.base.Recognizer
   deva_backend: crnn_mozhi         # crnn_mozhi | bhashini_api | paddle_vl | surya
-  latin_backend: trocr_printed        # trocr_printed | paddle_vl | tesseract | crnn_mozhi (local demo)
+  latin_backend: trocr_printed     # trocr_printed | crnn_mozhi
 
   line_segmentation:
     enabled: true

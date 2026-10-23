@@ -213,31 +213,76 @@ def layout_map(
     ground_truth: list[list[tuple[str, BBox]]],
     iou_thresholds: Sequence[float] = tuple(x / 100 for x in range(50, 100, 5)),
 ) -> dict:
-    """COCO-style mAP@[.50:.95] over the whole benchmark."""
-    by_class_preds: dict[str, list[tuple[BBox, float]]] = defaultdict(list)
-    by_class_gts: dict[str, list[BBox]] = defaultdict(list)
+    """COCO-style mAP@[.50:.95] over the whole benchmark.
 
-    # Note: aggregating across pages ignores per-image matching, which slightly
-    # differs from pycocotools. Use this for quick iteration; quote pycocotools
-    # numbers (via train/train_layout.py --eval-only) in the paper.
-    for page_preds in predictions:
+    Matching is done per image then aggregated — consistent with pycocotools.
+    Each predicted box is matched only to ground-truth boxes on the same page.
+    """
+    per_class_tp: dict[str, dict[float, list[tuple[float, bool]]]] = defaultdict(
+        lambda: {t: [] for t in iou_thresholds}
+    )
+    per_class_n_gt: dict[str, int] = defaultdict(int)
+
+    for page_preds, page_gts in zip(predictions, ground_truth):
+        # group by class
+        by_class_preds: dict[str, list[tuple[BBox, float]]] = defaultdict(list)
+        by_class_gts:   dict[str, list[BBox]]                = defaultdict(list)
         for name, box, score in page_preds:
             by_class_preds[name].append((box, score))
-    for page_gts in ground_truth:
         for name, box in page_gts:
             by_class_gts[name].append(box)
+            per_class_n_gt[name] += 1
+
+        for threshold in iou_thresholds:
+            for name, gts in by_class_gts.items():
+                preds_for_class = by_class_preds.get(name, [])
+                preds_sorted = sorted(preds_for_class, key=lambda p: p[1], reverse=True)
+                matched = [False] * len(gts)
+                for box, score in preds_sorted:
+                    best_iou, best_j = 0.0, -1
+                    for j, gt in enumerate(gts):
+                        if matched[j]: continue
+                        v = box.iou(gt)
+                        if v > best_iou:
+                            best_iou, best_j = v, j
+                    if best_iou >= threshold and best_j >= 0:
+                        matched[best_j] = True
+                        per_class_tp[name][threshold].append((score, True))
+                    else:
+                        per_class_tp[name][threshold].append((score, False))
+                # False negatives (unmatched GTs) don't add entries but reduce recall
 
     per_class: dict[str, float] = {}
     per_threshold: dict[str, float] = {}
 
     for threshold in iou_thresholds:
         aps = []
-        for name, gts in by_class_gts.items():
-            ap = _ap_for_class(by_class_preds.get(name, []), gts, threshold)
-            if ap == ap:  # not NaN
-                aps.append(ap)
-                if abs(threshold - 0.5) < 1e-9:
-                    per_class[name] = ap
+        for name, n_gt in per_class_n_gt.items():
+            if n_gt == 0:
+                continue
+            entries = sorted(per_class_tp[name][threshold], key=lambda x: x[0], reverse=True)
+            cum_tp = cum_fp = 0
+            precisions, recalls = [], []
+            for _, is_tp in entries:
+                if is_tp:
+                    cum_tp += 1
+                else:
+                    cum_fp += 1
+                precisions.append(cum_tp / (cum_tp + cum_fp))
+                recalls.append(cum_tp / n_gt)
+            if not precisions:
+                ap = 0.0
+            else:
+                max_p = list(precisions)
+                for i in range(len(max_p) - 2, -1, -1):
+                    max_p[i] = max(max_p[i], max_p[i + 1])
+                ap, prev_r = 0.0, 0.0
+                for r, p in zip(recalls, max_p):
+                    ap += (r - prev_r) * p
+                    prev_r = r
+            aps.append(ap)
+            if abs(threshold - 0.5) < 1e-9:
+                per_class[name] = ap
         per_threshold[f"mAP@{threshold:.2f}"] = sum(aps) / len(aps) if aps else 0.0
 
     values = list(per_threshold.values())
