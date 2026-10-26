@@ -21,6 +21,7 @@ import numpy as np
 from .config import Config
 from .layout.detector import LayoutDetector, merge_overlapping
 from .layout.lines import crop, offset_box, segment_lines, segment_table_cells
+from .layout.long_line import split_long_line_at_word_gaps
 from .layout.reading_order import compute_reading_order
 from .postprocess.text_repair import clean_text
 from .preprocess.enhance import preprocess_page
@@ -201,6 +202,8 @@ class AksharDrishtiPipeline:
                 method=ls_cfg.get("method", "projection"),
                 min_line_height=int(ls_cfg.get("min_line_height", 12)),
                 smoothing=int(ls_cfg.get("smoothing", 5)),
+                min_column_gap_ratio=float(ls_cfg.get("min_column_gap_ratio", 0.035)),
+                min_column_width_ratio=float(ls_cfg.get("min_column_width_ratio", 0.20)),
             )
         else:
             h, w = region_img.shape[:2]
@@ -217,7 +220,42 @@ class AksharDrishtiPipeline:
             else:
                 script, script_conf = "unknown", None
 
-            result = self.router.recognize(line_img, script=script, script_confidence=script_conf)
+            long_cfg = self.cfg.get("recognize.long_line", {}) or {}
+            chunks, split_status = [line_img], "disabled"
+            # ``unknown`` is the router's normal fallback when no script
+            # classifier checkpoint is installed; it still evaluates CRNN.
+            if long_cfg.get("enabled", False) and script in ("deva", "unknown"):
+                if region.type is RegionType.TABLE:
+                    split_status = "fallback_table_region"
+                else:
+                    chunks, split_status = split_long_line_at_word_gaps(
+                        line_img,
+                        max_width=int(long_cfg.get("max_width", 512)),
+                        target_height=int(self.cfg.get("recognize.backends.crnn_mozhi.img_height", 32)),
+                        min_gap_px=int(long_cfg.get("min_gap_px", 3)),
+                        table_gap_ratio=float(long_cfg.get("table_gap_ratio", 0.20)),
+                        max_chunks=int(long_cfg.get("max_chunks", 5)),
+                    )
+                if split_status.startswith("fallback"):
+                    log.debug("long-line chunking used %s for region %s", split_status, region.region_id)
+
+            chunk_results = [
+                self.router.recognize(chunk, script=script, script_confidence=script_conf)
+                for chunk in chunks
+            ]
+            if len(chunk_results) > 1:
+                from .recognize.base import RecognitionResult
+
+                texts = [r.text.strip() for r in chunk_results if r.text.strip()]
+                text = " ".join(texts)
+                confidences = [r.confidence for r in chunk_results if r.confidence is not None]
+                result = RecognitionResult(
+                    text=text,
+                    confidence=sum(confidences) / len(confidences) if confidences else None,
+                    backend="long_line_chunks",
+                )
+            else:
+                result = chunk_results[0]
             text = clean_text(
                 result.text,
                 unicode_form=self.cfg.get("postprocess.unicode_normalize", "NFC"),
@@ -272,7 +310,7 @@ class AksharDrishtiPipeline:
         timings["layout"] = time.perf_counter() - t0
 
         page.meta.preprocessing_applied = pre.applied
-        page.meta.rotation_corrected_deg = pre.rotation_deg
+        page.meta.rotation_corrected_deg = float(pre.orientation_rotation_cw + pre.rotation_deg)
 
         t0 = time.perf_counter()
         compute_reading_order(

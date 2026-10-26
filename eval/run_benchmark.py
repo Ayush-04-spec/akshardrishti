@@ -26,6 +26,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import logging
 import sys
@@ -39,7 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from akshardrishti.config import Config  # noqa: E402
 from akshardrishti.pipeline import AksharDrishtiPipeline  # noqa: E402
-from eval.metrics import bootstrap_ci, corpus_cer, corpus_wer, summarize  # noqa: E402
+from eval.metrics import bootstrap_ci, cer, corpus_cer, corpus_wer, summarize, wer  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("benchmark")
@@ -50,22 +51,41 @@ IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".pdf"}
 # ------------------------------------------------------------------ loading
 
 
-def load_benchmark(root: Path) -> list[dict]:
+def load_benchmark(
+    root: Path,
+    mapping_manifest: Path | None = None,
+    *,
+    exclude_unapproved: bool = False,
+) -> list[dict]:
     images_dir, gt_dir = root / "images", root / "gt_text"
     if not images_dir.exists():
         raise SystemExit(f"missing {images_dir}")
     if not gt_dir.exists():
         raise SystemExit(f"missing {gt_dir} -- CER needs ground-truth transcriptions")
 
+    image_paths = sorted(p for p in images_dir.iterdir() if p.suffix.lower() in IMAGE_EXTS)
+    explicit_refs: dict[str, Path] | None = None
+    if mapping_manifest is not None:
+        explicit_refs = _load_mapping_manifest(
+            root, mapping_manifest, image_paths, exclude_unapproved=exclude_unapproved,
+        )
+
     items = []
-    for img_path in sorted(p for p in images_dir.iterdir() if p.suffix.lower() in IMAGE_EXTS):
-        gt_path = gt_dir / f"{img_path.stem}.txt"
-        if not gt_path.exists():
-            log.warning("no ground truth for %s -- skipping", img_path.name)
-            continue
+    for img_path in image_paths:
+        if explicit_refs is None:
+            gt_path = gt_dir / f"{img_path.stem}.txt"
+            if not gt_path.exists():
+                log.warning("no ground truth for %s -- skipping", img_path.name)
+                continue
+        else:
+            gt_path = explicit_refs.get(img_path.stem)
+            if gt_path is None:
+                log.info("excluding %s: mapping is not approved", img_path.name)
+                continue
         items.append({
             "id": img_path.stem,
             "image_path": img_path,
+            "gt_path": gt_path,
             "gt_text": gt_path.read_text(encoding="utf-8").strip(),
             "gt_layout_path": root / "gt_layout" / f"{img_path.stem}.json",
         })
@@ -76,12 +96,91 @@ def load_benchmark(root: Path) -> list[dict]:
     return items
 
 
+def _load_mapping_manifest(
+    root: Path,
+    manifest_path: Path,
+    image_paths: list[Path],
+    *,
+    exclude_unapproved: bool,
+) -> dict[str, Path]:
+    """Validate an explicit image-to-reference map; never infer cross-ID pairs."""
+    if not manifest_path.is_absolute():
+        manifest_path = root / manifest_path
+    if not manifest_path.is_file():
+        raise ValueError(f"mapping manifest does not exist: {manifest_path}")
+
+    required = {
+        "image_id", "image_path", "same_stem_gt_path", "proposed_ground_truth_id",
+        "proposed_ground_truth_path", "audit_status", "evidence", "reviewer_notes",
+        "approved_for_evaluation",
+    }
+    with manifest_path.open("r", encoding="utf-8-sig", newline="") as stream:
+        reader = csv.DictReader(stream)
+        if not reader.fieldnames or not required.issubset(reader.fieldnames):
+            raise ValueError(f"mapping manifest is missing required columns: {sorted(required)}")
+        rows = list(reader)
+
+    by_id: dict[str, dict[str, str]] = {}
+    for row in rows:
+        image_id = row["image_id"].strip()
+        if not image_id:
+            raise ValueError("mapping manifest contains an empty image_id")
+        if image_id in by_id:
+            raise ValueError(f"duplicate mapping manifest entry for {image_id}")
+        by_id[image_id] = row
+
+    image_by_id = {p.stem: p for p in image_paths}
+    missing_rows = sorted(set(image_by_id) - set(by_id))
+    extra_rows = sorted(set(by_id) - set(image_by_id))
+    if missing_rows or extra_rows:
+        raise ValueError(f"mapping manifest coverage mismatch: missing={missing_rows}, extra={extra_rows}")
+
+    accepted: dict[str, Path] = {}
+    used_refs: set[Path] = set()
+    unresolved: list[str] = []
+    for image_id, row in by_id.items():
+        expected_image = Path("images") / image_by_id[image_id].name
+        if Path(row["image_path"]) != expected_image:
+            raise ValueError(f"image path mismatch for {image_id}: {row['image_path']!r}")
+        if row["audit_status"] != "confirmed" or row["approved_for_evaluation"].strip().lower() != "true":
+            unresolved.append(image_id)
+            continue
+
+        ref_id = row["proposed_ground_truth_id"].strip()
+        ref_rel = Path(row["proposed_ground_truth_path"])
+        if not ref_id or ref_rel.is_absolute() or ref_rel.suffix.lower() != ".txt":
+            raise ValueError(f"invalid proposed ground-truth path for {image_id}: {ref_rel}")
+        ref_path = root / ref_rel
+        if not ref_path.is_file():
+            raise ValueError(f"mapped ground truth for {image_id} does not exist: {ref_path}")
+        resolved_ref = ref_path.resolve()
+        try:
+            resolved_ref.relative_to(root.parent.resolve())
+        except ValueError as exc:
+            raise ValueError(f"mapped ground truth for {image_id} is outside the repository: {ref_rel}") from exc
+        if resolved_ref.stem != ref_id:
+            raise ValueError(f"ground-truth ID/path mismatch for {image_id}: {ref_id!r} vs {ref_rel}")
+        if resolved_ref in used_refs:
+            raise ValueError(f"duplicate ground-truth mapping: {ref_rel}")
+        used_refs.add(resolved_ref)
+        accepted[image_id] = ref_path
+
+    if unresolved and not exclude_unapproved:
+        raise ValueError(
+            "mapping manifest contains unapproved/unresolved pages: " + ", ".join(sorted(unresolved))
+        )
+    if unresolved:
+        log.warning("excluding %d unapproved/unresolved page(s): %s", len(unresolved), ", ".join(sorted(unresolved)))
+    return accepted
+
+
 # ------------------------------------------------------------------ systems
 
 
 def run_akshardrishti(items: list[dict], cfg: Config, label: str) -> dict:
     pipeline = AksharDrishtiPipeline(cfg)
     predictions, seconds = [], []
+    failures = []
 
     for i, item in enumerate(items, 1):
         t0 = time.perf_counter()
@@ -91,11 +190,14 @@ def run_akshardrishti(items: list[dict], cfg: Config, label: str) -> dict:
         except Exception as exc:  # noqa: BLE001
             log.error("[%s] failed on %s: %s", label, item["id"], exc)
             log.debug(traceback.format_exc())
+            failures.append((item["id"], str(exc)))
             predictions.append("")
         seconds.append(time.perf_counter() - t0)
         if i % 10 == 0:
             log.info("[%s] %d/%d", label, i, len(items))
 
+    if failures:
+        raise RuntimeError(f"{label} failed on {len(failures)} benchmark page(s): {failures}")
     return {"predictions": predictions, "seconds_per_page": sum(seconds) / len(seconds)}
 
 
@@ -109,11 +211,11 @@ def run_external(items: list[dict], backend_name: str, cfg: Config, label: str) 
     recognizer.ensure_loaded()
 
     predictions, seconds = [], []
+    failures = []
     for i, item in enumerate(items, 1):
         image = cv2.imread(str(item["image_path"]), cv2.IMREAD_COLOR)
         if image is None:
-            predictions.append("")
-            seconds.append(0.0)
+            failures.append((item["id"], f"could not read image: {item['image_path']}"))
             continue
 
         t0 = time.perf_counter()
@@ -125,12 +227,15 @@ def run_external(items: list[dict], backend_name: str, cfg: Config, label: str) 
             predictions.append(result.text)
         except Exception as exc:  # noqa: BLE001
             log.error("[%s] failed on %s: %s", label, item["id"], exc)
+            failures.append((item["id"], str(exc)))
             predictions.append("")
         seconds.append(time.perf_counter() - t0)
         if i % 10 == 0:
             log.info("[%s] %d/%d", label, i, len(items))
 
     recognizer.unload()
+    if failures:
+        raise RuntimeError(f"{label} failed on {len(failures)} benchmark page(s): {failures}")
     return {"predictions": predictions, "seconds_per_page": sum(seconds) / len(seconds)}
 
 
@@ -188,6 +293,15 @@ def score(items: list[dict], predictions: list[str], seconds_per_page: float) ->
         "n_documents": cer_stats["n_documents"],
         "seconds_per_page": seconds_per_page,
         "per_document_cer": cer_stats["per_document_cer"],
+        "per_document": [
+            {
+                "id": item["id"],
+                "reference_path": str(item["gt_path"]),
+                "cer": cer(item["gt_text"], prediction),
+                "wer": wer(item["gt_text"], prediction),
+            }
+            for item, prediction in zip(items, predictions)
+        ],
     }
 
 
@@ -219,10 +333,17 @@ def main() -> None:
     p.add_argument("--systems", nargs="*", default=None, help="default: eval.systems from the config")
     p.add_argument("--ablations", action="store_true", help="also run the ablation suite")
     p.add_argument("--limit", type=int, default=None, help="first N pages only (for a smoke test)")
+    p.add_argument("--mapping-manifest", type=Path, default=None,
+                   help="explicit image-to-ground-truth CSV mapping; defaults to legacy same-stem pairing")
+    p.add_argument("--exclude-unapproved-mappings", action="store_true",
+                   help="with --mapping-manifest, exclude unresolved/unapproved rows and report them")
     args = p.parse_args()
 
     cfg = Config.load(args.config)
-    items = load_benchmark(args.benchmark)
+    items = load_benchmark(
+        args.benchmark, args.mapping_manifest,
+        exclude_unapproved=args.exclude_unapproved_mappings,
+    )
     if args.limit:
         items = items[: args.limit]
 
@@ -273,6 +394,11 @@ def main() -> None:
     payload = {
         "benchmark": str(args.benchmark),
         "n_pages": len(items),
+        "mapping_manifest": str(args.mapping_manifest) if args.mapping_manifest else None,
+        "reference_mapping": [
+            {"image_id": item["id"], "reference_path": str(item["gt_path"])}
+            for item in items
+        ],
         "config_hash": cfg.hash(),
         "systems": results,
         "ablations": ablation_results,

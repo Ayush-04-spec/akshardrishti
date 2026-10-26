@@ -120,13 +120,83 @@ def segment_lines(
     method: str = "projection",
     min_line_height: int = 12,
     smoothing: int = 5,
+    min_column_gap_ratio: float = 0.035,
+    min_column_width_ratio: float = 0.20,
 ) -> list[BBox]:
     if method == "projection":
         return segment_lines_projection(region_img, min_line_height=min_line_height, smoothing=smoothing)
+    if method == "columns_then_projection":
+        return segment_lines_columns_then_projection(
+            region_img,
+            min_line_height=min_line_height,
+            smoothing=smoothing,
+            min_column_gap_ratio=min_column_gap_ratio,
+            min_column_width_ratio=min_column_width_ratio,
+        )
     if method == "none":
         h, w = region_img.shape[:2]
         return [BBox(x1=0, y1=0, x2=float(w), y2=float(h))]
     raise ValueError(f"unknown line segmentation method: {method!r}")
+
+
+def segment_lines_columns_then_projection(
+    region_img: np.ndarray,
+    min_line_height: int = 12,
+    smoothing: int = 5,
+    min_column_gap_ratio: float = 0.035,
+    min_column_width_ratio: float = 0.20,
+) -> list[BBox]:
+    """Conservatively split on full-height whitespace, then segment each column.
+
+    Candidate gutters must be wide relative to the region and every resulting
+    column must retain a configured minimum share of the region width. If those
+    conditions are not met, fall back to the unchanged whole-region projection
+    path. Accepted columns are emitted left-to-right, each top-to-bottom.
+    """
+    if region_img is None or region_img.size == 0:
+        return []
+    if min_column_gap_ratio < 0 or min_column_width_ratio <= 0:
+        raise ValueError("column gap ratio must be non-negative and column width ratio positive")
+
+    gray = cv2.cvtColor(region_img, cv2.COLOR_BGR2GRAY) if region_img.ndim == 3 else region_img
+    h, w = gray.shape[:2]
+    if w < 2:
+        return segment_lines_projection(region_img, min_line_height, smoothing)
+    binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
+    ink_per_column = (binary > 0).sum(axis=0)
+    # Ignore isolated speckles; a true gutter should have almost no foreground.
+    active_threshold = max(1, int(round(h * 0.002)))
+    active = ink_per_column > active_threshold
+
+    min_gap = max(2, int(np.ceil(w * min_column_gap_ratio)))
+    gaps: list[tuple[int, int]] = []
+    start = None
+    for x, is_active in enumerate(active):
+        if not is_active and start is None:
+            start = x
+        elif is_active and start is not None:
+            if x - start >= min_gap:
+                gaps.append((start, x))
+            start = None
+    if start is not None and w - start >= min_gap:
+        gaps.append((start, w))
+
+    # Only use interior gutters and require all resulting columns to be wide.
+    interior = [(a, b) for a, b in gaps if a > 0 and b < w]
+    if not interior:
+        return segment_lines_projection(region_img, min_line_height, smoothing)
+    boundaries = [0] + [int(round((a + b) / 2)) for a, b in interior] + [w]
+    spans = list(zip(boundaries[:-1], boundaries[1:]))
+    if any((x2 - x1) / w < min_column_width_ratio for x1, x2 in spans):
+        return segment_lines_projection(region_img, min_line_height, smoothing)
+
+    boxes: list[BBox] = []
+    for x1, x2 in spans:
+        column = region_img[:, x1:x2]
+        column_boxes = segment_lines_projection(column, min_line_height, smoothing)
+        boxes.extend(BBox(x1=box.x1 + x1, y1=box.y1, x2=box.x2 + x1, y2=box.y2)
+                     for box in column_boxes)
+    return boxes or segment_lines_projection(region_img, min_line_height, smoothing)
 
 
 def _projection_gaps(profile: np.ndarray, min_gap: int, threshold: float) -> list[tuple[int, int]]:

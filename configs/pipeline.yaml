@@ -21,6 +21,10 @@ preprocess:
   target_dpi: 300
   max_side: 2048                   # cap the long edge; protects T4 memory
   grayscale: true
+  orientation:
+    enabled: false                 # Experimental; requires local Tesseract OSD data
+    method: tesseract_osd           # tesseract_osd
+    min_confidence: 8.0             # use OSD's reported orientation_conf; fail closed below this
   deskew:
     enabled: true
     max_angle: 15.0                # degrees; beyond this we assume detection failed
@@ -84,9 +88,20 @@ recognize:
 
   line_segmentation:
     enabled: true
-    method: projection             # projection | craft
+    method: projection             # projection | columns_then_projection | craft
     min_line_height: 8
     smoothing: 3
+    min_column_gap_ratio: 0.035    # used only by columns_then_projection
+    min_column_width_ratio: 0.20   # reject narrow/noisy column partitions
+
+  # Experimental word-gap chunking for CRNN lines wider than its short-line
+  # operating range. Disabled unless explicitly enabled in an evaluation copy.
+  long_line:
+    enabled: false
+    max_width: 512                 # recognizer-resized width, not source pixels
+    min_gap_px: 3
+    table_gap_ratio: 0.20
+    max_chunks: 5                  # more cuts signal ambiguous/merged table rows
 
   backends:
     crnn_mozhi:
@@ -94,6 +109,8 @@ recognize:
       charset: ./weights/recognize/charset_deva.txt
       img_height: 32
       max_width: 512
+      inference_mode: legacy_cap   # legacy_cap | aspect_preserving (experimental)
+      max_preserved_width: 8192    # wider crops log and raise; never silently squeeze
       beam_width: 10               # 1 = greedy CTC decode
       right_pad: 64                # trailing white columns per crop; chosen on validation
     trocr_printed:

@@ -241,9 +241,9 @@ def main() -> None:
     preds_A: list[str] = []
     model.eval()
     with torch.no_grad():
-        for images, _, _, _, texts in test_loader:
+        for images, _, input_lengths, _, texts in test_loader:
             log_probs = model(images.to(device))
-            preds_A.extend(t for t, _ in greedy_decode(log_probs, charset))
+            preds_A.extend(t for t, _ in greedy_decode(log_probs, charset, input_lengths))
 
     elapsed_A = time.perf_counter() - t0
     metrics_A = mode_metrics(preds_A, refs, langs)

@@ -30,6 +30,7 @@ class PreprocessResult:
     image: np.ndarray
     applied: list[str] = field(default_factory=list)
     rotation_deg: float = 0.0
+    orientation_rotation_cw: int = 0
     scale: float = 1.0
 
     @property
@@ -106,6 +107,64 @@ def rotate_bound(image: np.ndarray, angle: float, border_value: int = 255) -> np
         image, m, (nw, nh),
         flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT, borderValue=border_value,
     )
+
+
+def rotate_page_quadrants(image: np.ndarray, rotation_cw: int) -> tuple[np.ndarray, np.ndarray]:
+    """Rotate an image clockwise by a right angle and return its pixel transform.
+
+    The 3x3 matrix maps original pixel-index coordinates (x, y, 1) into the
+    rotated image. Bounding boxes can be transformed by mapping all four
+    corners and taking the resulting axis-aligned bounds.
+    """
+    if rotation_cw not in (0, 90, 180, 270):
+        raise ValueError("rotation_cw must be one of 0, 90, 180, or 270")
+    if image is None or image.size == 0:
+        raise ValueError("cannot rotate an empty page")
+    h, w = image.shape[:2]
+    transforms = {
+        0: np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=np.float64),
+        90: np.array([[0, -1, h - 1], [1, 0, 0], [0, 0, 1]], dtype=np.float64),
+        180: np.array([[-1, 0, w - 1], [0, -1, h - 1], [0, 0, 1]], dtype=np.float64),
+        270: np.array([[0, 1, 0], [-1, 0, w - 1], [0, 0, 1]], dtype=np.float64),
+    }
+    rotate_codes = {
+        90: cv2.ROTATE_90_CLOCKWISE,
+        180: cv2.ROTATE_180,
+        270: cv2.ROTATE_90_COUNTERCLOCKWISE,
+    }
+    rotated = image.copy() if rotation_cw == 0 else cv2.rotate(image, rotate_codes[rotation_cw])
+    return rotated, transforms[rotation_cw]
+
+
+def transform_bbox_quadrants(box: tuple[float, float, float, float], transform: np.ndarray) -> tuple[float, float, float, float]:
+    """Transform an xyxy pixel-coordinate box using a quadrant rotation matrix."""
+    x1, y1, x2, y2 = box
+    corners = np.array([[x1, y1, 1], [x2, y1, 1], [x1, y2, 1], [x2, y2, 1]], dtype=np.float64)
+    mapped = corners @ transform.T
+    return (float(mapped[:, 0].min()), float(mapped[:, 1].min()),
+            float(mapped[:, 0].max()), float(mapped[:, 1].max()))
+
+
+def detect_orientation_tesseract_osd(gray: np.ndarray, min_confidence: float = 8.0) -> tuple[int, float | None]:
+    """Use Tesseract OSD's reported clockwise correction when confidence passes.
+
+    No local orientation score is synthesized. Missing Tesseract, OSD data, or
+    low confidence fails closed and returns an unrotated decision.
+    """
+    if gray.ndim != 2:
+        raise ValueError("detect_orientation_tesseract_osd expects grayscale input")
+    import pytesseract
+
+    result = pytesseract.image_to_osd(gray, output_type=pytesseract.Output.DICT)
+    rotation = int(result.get("rotate", 0)) % 360
+    confidence = float(result.get("orientation_conf", 0.0))
+    if rotation not in (0, 90, 180, 270):
+        log.warning("orientation OSD returned unsupported rotation %s; leaving page unchanged", rotation)
+        return 0, confidence
+    if confidence < min_confidence:
+        log.info("orientation OSD confidence %.2f is below %.2f; leaving page unchanged", confidence, min_confidence)
+        return 0, confidence
+    return rotation, confidence
 
 
 def deskew(gray: np.ndarray, max_angle: float = 15.0) -> tuple[np.ndarray, float]:
@@ -212,7 +271,27 @@ def preprocess_page(image: np.ndarray, cfg: dict | None = None) -> PreprocessRes
         if scale != 1.0:
             applied.append(f"resize(x{scale:.3f})")
 
-    # 3. deskew
+    # 3. Optional right-angle orientation correction. Disabled by default.
+    orientation_rotation = 0
+    orientation_confidence = None
+    orientation_cfg = cfg.get("orientation", {}) or {}
+    if orientation_cfg.get("enabled", False):
+        method = orientation_cfg.get("method", "tesseract_osd")
+        if method != "tesseract_osd":
+            raise ValueError(f"unknown page orientation method: {method!r}")
+        try:
+            orientation_rotation, orientation_confidence = detect_orientation_tesseract_osd(
+                out, min_confidence=float(orientation_cfg.get("min_confidence", 8.0))
+            )
+            if orientation_rotation:
+                out, _ = rotate_page_quadrants(out, orientation_rotation)
+                applied.append(f"orientation_correction(cw={orientation_rotation}deg)")
+        except Exception as exc:
+            # A requested but unavailable/failed orientation provider must not
+            # guess a rotation. Log the failure and preserve the page as-is.
+            log.warning("orientation correction unavailable (%s); leaving page unchanged", exc)
+
+    # 4. deskew
     rotation = 0.0
     ds = cfg.get("deskew", {}) or {}
     if ds.get("enabled", True):
@@ -220,25 +299,28 @@ def preprocess_page(image: np.ndarray, cfg: dict | None = None) -> PreprocessRes
         if rotation != 0.0:
             applied.append(f"deskew({rotation:+.2f}deg)")
 
-    # 4. denoise
+    # 5. denoise
     dn = cfg.get("denoise", {}) or {}
     if dn.get("enabled", True):
         out = denoise(out, method=dn.get("method", "fastnlmeans"), strength=int(dn.get("strength", 7)))
         applied.append(f"denoise({dn.get('method', 'fastnlmeans')})")
 
-    # 5. CLAHE
+    # 6. CLAHE
     cl = cfg.get("clahe", {}) or {}
     if cl.get("enabled", True):
         out = apply_clahe(out, clip_limit=float(cl.get("clip_limit", 2.0)), tile_grid=tuple(cl.get("tile_grid", (8, 8))))
         applied.append("clahe")
 
-    # 6. binarize (off by default)
+    # 7. binarize (off by default)
     bn = cfg.get("binarize", {}) or {}
     if bn.get("enabled", False):
         out = binarize(out, method=bn.get("method", "sauvola"), window=int(bn.get("window", 25)))
         applied.append(f"binarize({bn.get('method', 'sauvola')})")
 
-    return PreprocessResult(image=out, applied=applied, rotation_deg=rotation, scale=scale)
+    return PreprocessResult(
+        image=out, applied=applied, rotation_deg=rotation,
+        orientation_rotation_cw=orientation_rotation, scale=scale,
+    )
 
 
 def preprocess_line_crop(crop: np.ndarray, target_height: int = 32, binarize_crop: bool = True) -> np.ndarray:

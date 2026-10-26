@@ -73,11 +73,11 @@ def evaluate(model, loader, charset, device, max_batches: int | None = None) -> 
     preds: list[str] = []
     refs: list[str] = []
 
-    for i, (images, _, _, _, texts) in enumerate(loader):
+    for i, (images, _, input_lengths, _, texts) in enumerate(loader):
         if max_batches and i >= max_batches:
             break
         log_probs = model(images.to(device))
-        preds.extend(text for text, _ in greedy_decode(log_probs, charset))
+        preds.extend(text for text, _ in greedy_decode(log_probs, charset, input_lengths))
         refs.extend(texts)
 
     exact = sum(normalize_for_scoring(p) == normalize_for_scoring(r) for p, r in zip(preds, refs))

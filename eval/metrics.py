@@ -125,6 +125,8 @@ def corpus_cer(references: list[str], hypotheses: list[str], normalize: bool = T
 
 
 def corpus_wer(references: list[str], hypotheses: list[str], normalize: bool = True) -> dict:
+    if len(references) != len(hypotheses):
+        raise ValueError(f"length mismatch: {len(references)} refs vs {len(hypotheses)} hyps")
     total_err = total_words = 0
     for ref, hyp in zip(references, hypotheses):
         if normalize:

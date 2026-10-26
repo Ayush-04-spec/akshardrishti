@@ -23,6 +23,7 @@ width to /8 (as many Latin CRNNs do) measurably hurts conjunct recognition.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Sequence
 
 import torch
 import torch.nn as nn
@@ -131,14 +132,20 @@ class CRNN(nn.Module):
 # ------------------------------------------------------------------ decoding
 
 
-def greedy_decode(log_probs: torch.Tensor, charset: Charset) -> list[tuple[str, float]]:
+def greedy_decode(
+    log_probs: torch.Tensor, charset: Charset, sequence_lengths: Sequence[int] | torch.Tensor | None = None
+) -> list[tuple[str, float]]:
     """Best-path CTC decode. ``log_probs`` is (T, B, C)."""
     probs = log_probs.detach().cpu()
     best = probs.argmax(2).permute(1, 0)          # (B, T)
     max_lp = probs.max(2).values.permute(1, 0)    # (B, T)
 
     out: list[tuple[str, float]] = []
-    for seq, lps in zip(best, max_lp):
+    lengths = sequence_lengths.tolist() if isinstance(sequence_lengths, torch.Tensor) else sequence_lengths
+    for batch_index, (seq, lps) in enumerate(zip(best, max_lp)):
+        if lengths is not None:
+            valid_steps = max(0, min(int(lengths[batch_index]), len(seq)))
+            seq, lps = seq[:valid_steps], lps[:valid_steps]
         collapsed: list[int] = []
         kept: list[float] = []
         prev = -1
@@ -153,20 +160,27 @@ def greedy_decode(log_probs: torch.Tensor, charset: Charset) -> list[tuple[str, 
     return out
 
 
-def beam_decode(log_probs: torch.Tensor, charset: Charset, beam_width: int = 10) -> list[tuple[str, float]]:
+def beam_decode(
+    log_probs: torch.Tensor,
+    charset: Charset,
+    beam_width: int = 10,
+    sequence_lengths: Sequence[int] | torch.Tensor | None = None,
+) -> list[tuple[str, float]]:
     """Vanilla CTC prefix beam search (no language model).
 
     Typically buys 1-3% absolute CER over greedy on Devanagari. Set
     ``beam_width: 1`` in the config to fall back to greedy for speed.
     """
     if beam_width <= 1:
-        return greedy_decode(log_probs, charset)
+        return greedy_decode(log_probs, charset, sequence_lengths)
 
     probs = log_probs.detach().cpu().exp().numpy()
     results: list[tuple[str, float]] = []
 
+    lengths = sequence_lengths.tolist() if isinstance(sequence_lengths, torch.Tensor) else sequence_lengths
     for b in range(probs.shape[1]):
-        mat = probs[:, b, :]
+        valid_steps = probs.shape[0] if lengths is None else max(0, min(int(lengths[b]), probs.shape[0]))
+        mat = probs[:valid_steps, b, :]
         # beam: prefix -> (p_blank, p_non_blank)
         beam: dict[tuple[int, ...], tuple[float, float]] = {(): (1.0, 0.0)}
 
