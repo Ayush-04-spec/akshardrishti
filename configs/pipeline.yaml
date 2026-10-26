@@ -126,6 +126,16 @@ recognize:
       model_id: PaddlePaddle/PaddleOCR-VL
     surya:
       langs: [hi, mr, en]
+      languages: [hi, mr, en]  # Surya 2 auto-detects these multilingual scripts
+      server_url_env: SURYA_INFERENCE_URL
+      allow_model_download: false  # requires an existing server unless explicitly enabled
+    sarvam_document_ai:
+      enabled: false             # experimental benchmark only; never selected by default
+      api_key_env: SARVAM_API_KEY
+      language: mr-IN            # Sarvam documents support Marathi; page inputs are Marathi-first
+      output_format: json
+      max_pages_per_job: 10      # conservative documented limit (some overview text says 30)
+      price_inr_per_page: 0.50
 
 # --------------------------------------------------------------- postprocessing
 postprocess:

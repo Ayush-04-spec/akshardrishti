@@ -36,5 +36,6 @@ wandb>=0.16
 # Install only what you actually benchmark; each is heavy.
 #   pip install paddlepaddle-gpu paddleocr    # PaddleOCR-VL
 #   pip install surya-ocr                     # Surya (OpenRAIL-M weights)
+#   python -m pip install sarvamai            # Sarvam Document AI benchmark (optional, hosted API)
 #   apt-get install tesseract-ocr tesseract-ocr-hin tesseract-ocr-mar
 #   pip install pytesseract                   # Tesseract baseline
